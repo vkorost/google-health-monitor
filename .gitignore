@@ -22,3 +22,10 @@ node_modules/
 __pycache__/
 *.pyc
 .DS_Store
+
+# personal health data, analysis output and clinical documents: never publish
+analysis/
+reports/
+questions-for-health-project.md
+samsung_export/
+*.sqlite
