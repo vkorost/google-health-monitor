@@ -19,11 +19,13 @@ test("ride split at traffic lights becomes one workout", () => {
   assert.equal(out[0].avg_hr, Math.round(((100 * 1800 + 130 * 600 + 110 * 300) / 2700) * 10) / 10);
 });
 
-test("a long gap or a different type starts a new workout", () => {
+test("a stop of up to 25 minutes joins; a longer gap or a different type starts a new workout", () => {
+  const joined = mergeWorkouts([w(0, 1800, "Biking", 100, 120), w(1800 + 25 * 60, 3600, "Biking", 100, 120)]);
+  assert.equal(joined.length, 1);
   const out = mergeWorkouts([
     w(0, 1800, "Biking", 100, 120),
-    w(1800 + 601, 3000, "Biking", 100, 120),
-    w(3060, 3600, "Swimming", 110, 130),
+    w(1800 + 25 * 60 + 1, 3900, "Biking", 100, 120), // just over the 25-minute join gap
+    w(3960, 4500, "Swimming", 110, 130),
   ]);
   assert.deepEqual(out.map((x) => [x.category, x.parts]), [["Biking", 1], ["Biking", 1], ["Swimming", 1]]);
 });

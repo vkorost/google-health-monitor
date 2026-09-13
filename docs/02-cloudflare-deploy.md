@@ -23,6 +23,19 @@ Copy the printed `database_id` into `wrangler.jsonc`, then apply the schema:
 npx wrangler d1 execute healthmon --remote --file=schema.sql
 ```
 
+A database created from the current `schema.sql` already has every column, so do not run the migrations on it.
+
+### Upgrading an existing database
+
+A database created before travel offsets, steps and the Samsung tables needs migration 0002 **before** the new Worker is deployed, because the pull writes the new columns:
+
+```bash
+npx wrangler d1 export healthmon --remote --output backup-before-0002.sql   # a backup first
+npx wrangler d1 migrations apply healthmon --remote
+```
+
+It adds `offset_s` to `nights`, `workouts` and `body`, and creates `steps_daily` and `samsung_nightly`. SQLite has no `ADD COLUMN IF NOT EXISTS`, so apply schema changes only through wrangler's migration tracking, which runs each file once. Existing rows keep `offset_s` NULL and fall back to the home time zone until `tools/backfill.mjs` is re-run.
+
 ## Step 2: Hostname and timezone
 
 In `wrangler.jsonc`:
@@ -113,6 +126,7 @@ Secrets take a few seconds to reach the Worker; retry before debugging. Without 
 ```bash
 node tools/backfill.mjs                   # 12 months of 15-minute heart rate + all summaries
 node tools/backfill.mjs --hr-days 90      # less heart-rate history
+node tools/backfill.mjs --steps-days 365  # Samsung daily step totals (one API request per day; default 730)
 ```
 
 Set `HEALTH_TZ` to the same zone as `vars.TZ` if it is not `America/New_York`. The script writes `import/NN-*.sql` (gitignored) and prints the row writes per file. Load them in order:
@@ -148,3 +162,8 @@ Then, in a browser:
 - **"Watch data stopped" is the alert that matters.** It usually means a phone app has not synced: open Samsung Health (especially after an update) and the Google Health app.
 - **"Google access lost"** means the refresh token died. The usual cause is an OAuth app still in Testing after 7 days. Publish it (docs/01, Step 7), re-run `tools/gh_probe.py auth`, and update `GOOGLE_REFRESH_TOKEN`.
 - **Logs:** `npx wrangler tail`.
+- **Settings stored as data, not code** (the `state` table):
+  - `excluded_body_dates`: a JSON array of local dates whose scale readings are known to be wrong.
+  - `trend_breaks`: a JSON array of `{date, metric, note}` markers for vendor algorithm changes (metrics `hrv`, `spo2`, `sleep_awake`, `rhr`, `weight`).
+  - `sleep_bands`, `zone_max_hr`, `zone_rest_hr`: label cutoffs and Zone 2 overrides, editable on the dashboard.
+- **Samsung export:** see [04-samsung-export.md](04-samsung-export.md).

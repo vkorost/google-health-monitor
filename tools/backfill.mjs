@@ -8,6 +8,7 @@
 //
 //   node tools/backfill.mjs              12 months of 15-min heart rate + all summaries
 //   node tools/backfill.mjs --hr-days 90
+//   node tools/backfill.mjs --steps-days 730   Samsung daily step totals (one API request per day)
 //
 // Reads .secrets/client_secret.json (web client) and .secrets/token.json.
 
@@ -15,7 +16,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as google from "../src/google.js";
-import { bodyRow, bucketRows, isoOf, nightRow, workoutRow } from "../src/ingest.js";
+import { addDays, bodyRow, bucketRows, isoOf, localDate, localMidnight, nightRow, stepsDailyRow, workoutRow } from "../src/ingest.js";
 import { restingHrRows } from "../src/metrics.js";
 import { upsertSql, workoutMaxHrSql } from "../src/db.js";
 
@@ -26,12 +27,13 @@ const TZ = process.env.HEALTH_TZ || "America/New_York";
 const DAY_S = 86400;
 
 // D1 counts index maintenance as extra written rows, so budget per table.
-const WRITES_PER_ROW = { hr_buckets: 1, nights: 2, workouts: 2, body: 2, rhr_daily: 2 };
+const WRITES_PER_ROW = { hr_buckets: 1, nights: 2, workouts: 2, body: 2, rhr_daily: 2, steps_daily: 1 };
 const MAX_WRITES_PER_FILE = 80_000;
 const MAX_BYTES_PER_FILE = 4_500_000;
 
 const args = process.argv.slice(2);
 const hrDays = Number(args[args.indexOf("--hr-days") + 1]) || 365;
+const stepsDays = args.includes("--steps-days") ? Number(args[args.indexOf("--steps-days") + 1]) || 0 : 730;
 
 function secrets() {
   const client = JSON.parse(readFileSync(join(ROOT, ".secrets", "client_secret.json"), "utf8"));
@@ -77,6 +79,20 @@ async function main() {
   const body = [...weight, ...fat].filter(Boolean);
   log(`body readings: ${body.length} (weight ${weight.length}, body fat ${fat.length})`);
 
+  // ---- Samsung daily steps: a one-second filter at each local midnight skips the per-minute phone records
+  const steps = [];
+  const today = localDate(nowS, TZ);
+  for (let i = 0; i < stepsDays; i++) {
+    const t0 = localMidnight(addDays(today, -i), TZ);
+    const pts = await google.listPoints(token, "steps", {
+      filter: `steps.interval.start_time >= "${isoOf(t0)}" AND steps.interval.start_time < "${isoOf(t0 + 1)}"`, pageSize: 20, maxPages: 1,
+    });
+    for (const p of pts) { const r = stepsDailyRow(p, TZ); if (r) steps.push(r); }
+    if (i % 30 === 29) process.stdout.write(".");
+  }
+  process.stdout.write("\n");
+  log(`Samsung step days: ${steps.length} of ${stepsDays}`);
+
   // ---- derived
   const rhr = restingHrRows(nights, hr);
   log(`resting HR days: ${rhr.length}`);
@@ -119,12 +135,13 @@ async function main() {
   add("workouts", workouts);
   add("body", body);
   add("rhr_daily", rhr);
+  add("steps_daily", steps);
   buf.push(workoutMaxHrSql(0)); writes += workouts.length * 2; bytes += 300;
   flush("workout-max-hr");
 
   const total = files.reduce((n, f) => n + f.writes, 0);
   console.log("\nTable counts:");
-  console.table({ hr_buckets: hr.length, nights: nights.length, workouts: workouts.length, body: body.length, rhr_daily: rhr.length });
+  console.table({ hr_buckets: hr.length, nights: nights.length, workouts: workouts.length, body: body.length, rhr_daily: rhr.length, steps_daily: steps.length });
   console.log("Files (import in order):");
   for (const f of files) console.log(`  import/${f.name}  ${(f.bytes / 1024).toFixed(0)} KB  ~${f.writes} row writes`);
   console.log(`Estimated row writes in total: ~${total} (D1 free plan: 100,000 per day)`);

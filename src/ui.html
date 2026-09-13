@@ -30,7 +30,8 @@
   --weight:#1a5fb4; --fat:#0f7f73;
   --ex-swim:#2e5c94; --ex-bike:#5d822f; --ex-other:#989faa;
   --era-a:rgba(27,30,35,.035); --era-b:rgba(27,30,35,0);
-  --asleep:rgba(85,72,141,.07); --workout:rgba(26,95,180,.10);
+  --asleep:rgba(85,72,141,.07); --workout:rgba(26,95,180,.10); --zone:rgba(25,123,60,.10);
+  --steps:#4b6f8f; --sx:#6b5d8f;
   --sans:"Instrument Sans", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono:"IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
@@ -48,7 +49,8 @@
     --weight:#7cb0f0; --fat:#2bb3a3;
     --ex-swim:#4b7cba; --ex-bike:#7aa14e; --ex-other:#5d646f;
     --era-a:rgba(230,232,234,.04); --era-b:rgba(230,232,234,0);
-    --asleep:rgba(101,86,163,.14); --workout:rgba(124,176,240,.12);
+    --asleep:rgba(101,86,163,.14); --workout:rgba(124,176,240,.12); --zone:rgba(93,209,138,.10);
+    --steps:#7fa3c4; --sx:#a597cf;
   }
 }
 :root[data-theme="dark"]{
@@ -64,7 +66,8 @@
   --weight:#7cb0f0; --fat:#2bb3a3;
   --ex-swim:#4b7cba; --ex-bike:#7aa14e; --ex-other:#5d646f;
   --era-a:rgba(230,232,234,.04); --era-b:rgba(230,232,234,0);
-  --asleep:rgba(101,86,163,.14); --workout:rgba(124,176,240,.12);
+  --asleep:rgba(101,86,163,.14); --workout:rgba(124,176,240,.12); --zone:rgba(93,209,138,.10);
+  --steps:#7fa3c4; --sx:#a597cf;
 }
 
 *{box-sizing:border-box}
@@ -219,6 +222,14 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
 .cal i.part{background:var(--info);opacity:.75}
 .banner{border:1px solid var(--warn);color:var(--warn-ink);background:var(--panel);border-radius:8px;padding:10px 14px;font-size:13.5px}
 .loading{color:var(--muted);font-size:13.5px;padding:12px 0}
+.flag{display:inline-flex;align-items:center;gap:5px;border:1px dashed currentColor;border-radius:999px;padding:0 8px;font-size:12px;font-weight:600;color:var(--sl-att);white-space:nowrap;cursor:help;vertical-align:middle}
+.hint{border-bottom:1px dotted var(--muted);cursor:help}
+.sstrip{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--ink-2);padding-top:6px;border-top:1px solid var(--grid)}
+.sstrip b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.srcnote{font-size:12px;color:var(--muted)}
+.zone-tag{font-size:12px;color:var(--good-ink);white-space:nowrap}
+.zonebox{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.zonebox input{width:70px;font-family:var(--mono);font-size:16px;padding:3px 6px;border:1px solid var(--axis);border-radius:6px;background:var(--panel-2)}
 </style>
 </head>
 <body>
@@ -265,6 +276,7 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
       <div class="card" style="grid-column:1/-1">
         <div class="card-head"><h3 id="hyp-title">Sleep stages</h3><span class="readout" id="hyp-readout"></span></div>
         <div class="chart" id="c-hyp"></div>
+        <div class="sstrip" id="day-samsung" hidden></div>
       </div>
       <div class="card">
         <div class="card-head"><h3>Heart rate through the day</h3><span class="readout" id="dhr-readout"></span></div>
@@ -273,6 +285,7 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
           <span><i class="sw" style="background:var(--heart-band)"></i>Min to max</span>
           <span><i class="sw" style="background:var(--asleep);border:1px solid var(--axis)"></i>Asleep</span>
           <span><i class="sw" style="background:var(--workout);border:1px solid var(--axis)"></i>Workout</span>
+          <span id="zone-legend" hidden><i class="sw" style="background:var(--zone);border:1px solid var(--good)"></i><span class="hint" id="zone-legend-text">Zone 2</span></span>
         </div>
         <div class="chart" id="c-dhr"></div>
       </div>
@@ -297,6 +310,7 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
     <div class="grid">
       <div class="card">
         <div class="card-head"><h3>Sleep per night</h3><span class="readout" id="sleep-readout"></span></div>
+        <div class="readout sub" id="sleep-regularity"></div>
         <div class="legend">
           <span><i class="sw st" style="background:var(--st-deep)"></i>Deep</span>
           <span><i class="sw st" style="background:var(--st-rem)"></i>REM</span>
@@ -306,13 +320,13 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
         <div class="chart" id="c-sleep"></div>
       </div>
       <div class="card">
-        <div class="card-head"><h3>Resting heart rate</h3><span class="readout" id="rhr-readout"></span></div>
+        <div class="card-head"><h3>Lowest sleeping heart rate</h3><span class="readout" id="rhr-readout"></span></div>
         <div class="legend">
           <span><i class="dot" style="background:var(--heart)"></i><span id="rhr-dotlabel">Nightly value</span></span>
           <span><i class="line" style="background:var(--ink-2)"></i>30-day average</span>
         </div>
         <div class="chart" id="c-rhr"></div>
-        <p class="note">Calculated here: lowest 30-minute average heart rate while asleep. Samsung does not share its own resting heart rate. Needs 15-minute heart-rate data, which is kept for the last 12 months.</p>
+        <p class="note">Calculated here: the lowest 30-minute average heart rate while asleep. It runs about 5 bpm below Samsung's sleeping heart rate and below Fitbit's resting heart rate, so compare it with itself over time, not with those numbers. Needs 15-minute heart-rate data, kept for the last 12 months.</p>
       </div>
       <div class="card">
         <div class="card-head"><h3>Weight</h3><span class="readout" id="wt-readout"></span></div>
@@ -321,7 +335,7 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
           <span><i class="line" style="background:var(--weight)"></i>7-day rolling median</span>
         </div>
         <div class="chart" id="c-weight"></div>
-        <p class="note">Arboleaf readings are labeled: their dates have been seen to be wrong, so a reading can appear on a day you did not weigh in.</p>
+        <p class="note" id="wt-note">Arboleaf readings are labeled: their dates have been seen to be wrong, so a reading can appear on a day you did not weigh in.</p>
       </div>
       <div class="card">
         <div class="card-head"><h3>Body fat</h3><span class="readout" id="bf-readout"></span></div>
@@ -342,11 +356,12 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
         <div class="chart" id="c-ex"></div>
       </div>
       <div class="card">
-        <div class="card-head"><h3>Steps</h3><span class="readout">Not shown yet</span></div>
-        <div class="empty">
-          Watch steps are not reaching Google yet; only the phone's pedometer is. Phone counts miss every day the phone stays behind, so a chart of them would show a false decline. This card turns on once daily watch step records arrive.
-        </div>
+        <div class="card-head"><h3>Steps</h3><span class="readout" id="steps-readout"></span></div>
+        <div class="legend"><span><i class="sw" style="background:var(--steps)"></i><span id="steps-dotlabel">Samsung daily total</span></span></div>
+        <div class="chart" id="c-steps"></div>
+        <p class="note">Samsung Health's daily total (watch and phone as Samsung counts them). Days Samsung did not send are left blank, never counted as zero; the phone's own pedometer is not used.</p>
       </div>
+      <div id="samsung-cards" style="display:contents"></div>
     </div>
   </section>
 
@@ -366,6 +381,7 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
         <div>
           <h3>Where each metric came from</h3>
           <div class="chart" id="c-eras"></div>
+          <p class="note" id="samsung-import-note" style="margin-top:8px"></p>
         </div>
         <div>
           <h3>Sync log</h3>
@@ -407,6 +423,12 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
             <label class="switch"><input type="checkbox" id="a-recover" data-k="alert_recover"><span></span></label>
             <div class="t"><label for="a-recover">Data is flowing again</label></div>
             <div class="d">Sent once when a stopped source recovers, with how many days were backfilled.</div>
+          </div>
+          <div class="alert">
+            <span></span>
+            <div class="t">Heart-rate zones</div>
+            <div class="d">Zone 2 is estimated from your own data: 60 to 70 percent of heart-rate reserve between your lowest sleeping heart rate and the 95th percentile of workout maximums. Override either number, or leave it blank for automatic.
+              <span class="zonebox" style="margin-top:6px">Max <input type="number" id="z-max" data-k="zone_max_hr" min="100" max="230" placeholder="auto" aria-label="Maximum heart rate override"> Rest <input type="number" id="z-rest" data-k="zone_rest_hr" min="30" max="100" placeholder="auto" aria-label="Resting heart rate override"> <span class="srcnote" id="zone-now"></span></span></div>
           </div>
           <div class="alert">
             <label class="switch"><input type="checkbox" id="a-quiet" data-k="quiet_enabled"><span></span></label>
@@ -464,7 +486,14 @@ function lp(epochS){
   const p = Object.fromEntries(fmt.formatToParts(new Date(epochS * 1000)).map(x => [x.type, x.value]));
   return {date: p.year + "-" + p.month + "-" + p.day, minutes: Number(p.hour) * 60 + Number(p.minute)};
 }
-const SRC = {"com.sec.android.app.shealth": "Samsung Health", "com.qingniu.arboleaf": "Arboleaf", "fi.polar.polarflow": "Polar Flow", "FITBIT_WEB_API": "Fitbit API entries", "Aria": "Fitbit Aria", "FITBIT": "Fitbit"};
+// Local clock of an instant using the offset the record carried; the home zone when it carried none.
+function lpo(epochS, offsetS){
+  if (offsetS === null || offsetS === undefined) return lp(epochS);
+  const local = epochS + offsetS, day = Math.floor(local / 86400);
+  return {date: new Date(day * DAY).toISOString().slice(0, 10), minutes: Math.floor((local - day * 86400) / 60)};
+}
+const utcLabel = off => { const m = Math.round(off / 60), sgn = m < 0 ? "-" : "+", a = Math.abs(m); return "UTC" + sgn + Math.floor(a / 60) + (a % 60 ? ":" + String(a % 60).padStart(2, "0") : ""); };
+const SRC = {"samsung_export": "Samsung export", "com.sec.android.app.shealth": "Samsung Health", "com.qingniu.arboleaf": "Arboleaf", "fi.polar.polarflow": "Polar Flow", "FITBIT_WEB_API": "Fitbit API entries", "Aria": "Fitbit Aria", "FITBIT": "Fitbit"};
 const srcName = s => SRC[s] || s || "unknown";
 const untrusted = s => s === "com.qingniu.arboleaf";
 const LB = g => g / 453.59237;
@@ -480,6 +509,19 @@ async function api(path, opts){
 function banner(msg){ const b = document.getElementById("banner"); if (!msg) { b.hidden = true; return; } b.textContent = msg; b.hidden = false; }
 function safe(name, fn){ try { fn(); } catch (err) { console.error(name, err); banner("Could not draw " + name + ": " + err.message); } }
 function empty(host, text){ host.innerHTML = '<div class="empty">' + esc(text) + '</div>'; }
+function badFlagHtml(b){
+  if (!b || !b.bad) return "";
+  return ' <span class="flag" tabindex="0" title="An awakening of ' + b.longest_awake_min + ' minutes between falling asleep and the final wake-up. Nights with a wake-up of 15 minutes or more are flagged.">Long wake-up ' + b.longest_awake_min + 'm</span>';
+}
+// Dashed vertical markers for known algorithm or firmware changes on a trend. xOf(dayNumber) -> svg x or null.
+function breakMarks(c, metric, xOf){
+  ((TRENDS && TRENDS.breaks) || []).filter(b => b.metric === metric).forEach(b => {
+    const x = xOf(dn(b.date)); if (x == null || x < c.pad.l || x > c.W - c.pad.r) return;
+    const ln = el("line", {x1: x, x2: x, y1: c.pad.t, y2: c.pad.t + c.ph, style: "stroke:var(--muted);stroke-width:1;stroke-dasharray:4 3"}, c.svg);
+    const t = el("title", {}, ln); t.textContent = b.date + ": " + b.note;
+    const tx = el("text", {x: x + 3, y: c.pad.t + 10}, c.svg); tx.textContent = "change"; const t2 = el("title", {}, tx); t2.textContent = b.date + ": " + b.note;
+  });
+}
 
 /* ---------- svg helpers ---------- */
 function el(tag, attrs, parent){ const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
@@ -561,6 +603,9 @@ function stackedBars(host, items, keys, opts){
       }
     });
   });
+  if (opts.mark) items.forEach((it, i) => { if (!it.v || !opts.mark(it)) return; const top = keys.reduce((s,k) => s + (it.v[k.k] || 0), 0);
+    el("circle", {cx: c.pad.l + band * (i + 0.5), cy: Math.max(c.pad.t + 3, c.y(top) - 5), r: Math.max(2, Math.min(3.5, bw / 2.5)), style: "fill:none;stroke:var(--sl-att);stroke-width:1.5"}, g); });
+  if (opts.after) opts.after(c, band);
   const ticks = tickEvery(items, opts.want || 6, opts.grain).map(i => ({v: i + 0.5, label: bucketTick(items[i], opts.grain, i, items.length)}));
   xLabels(c, ticks);
   const hit = el("rect", {x: c.pad.l, y: c.pad.t, width: c.pw, height: c.ph, style: "fill:transparent"}, c.svg);
@@ -623,11 +668,17 @@ function renderSleep(){
   if (!withData.length) { document.getElementById("sleep-readout").textContent = ""; empty(host, "No sleep recorded in this range."); return; }
   const avg = withData.reduce((a, i) => a + i.v.asleep, 0) / withData.length;
   document.getElementById("sleep-readout").innerHTML = 'Average asleep <span class="num">' + hm(avg * 60) + '</span>';
+  const reg = s.regularity, regEl = document.getElementById("sleep-regularity");
+  const badN = grain === "day" ? items.filter(i => i.bad).length : 0;
+  regEl.innerHTML = (reg && reg.sd_min != null ? '<span class="hint" tabindex="0" title="Standard deviation of your ' + (reg.basis === "onset" ? "sleep-onset" : "bedtime") + ' clock time over ' + reg.nights + ' nights, measured around midnight so 23:50 and 00:10 are 20 minutes apart. Lower is more regular. ' + (reg.basis === "bedtime" ? "Longer ranges use the start of the sleep session." : "") + '">' + (reg.basis === "onset" ? "Sleep onset" : "Bedtime") + ' varies by <span class="num">&plusmn;' + hm(reg.sd_min) + '</span></span>' : "") +
+    (grain === "day" ? ' &middot; <span class="hint" tabindex="0" title="Circled bars: a wake-up of 15 minutes or more between falling asleep and the final wake-up.">' + badN + ' nights with a long wake-up</span>' : "");
+  const idxOf = d => { const i = items.findIndex(it => d >= it.a && d <= it.b); return i < 0 ? null : i; };
   stackedBars(host, items,
     [{k:"deep", c:"--st-deep"}, {k:"rem", c:"--st-rem"}, {k:"light", c:"--st-light"}, {k:"awake", c:"--st-awake"}],
-    {grain, label: "Sleep per night by stage", fmtY: v => v + " h", yTicks: max => { const top = Math.max(10, Math.ceil(max / 2) * 2); const t = []; for (let v = 0; v <= top; v += 2) t.push(v); return t; },
+    {grain, label: "Sleep per night by stage", fmtY: v => v + " h", mark: it => grain === "day" && it.bad,
+     after: (c, band) => breakMarks(c, "sleep_awake", d => { const i = idxOf(d); return i == null ? null : c.pad.l + band * (i + 0.5); }), yTicks: max => { const top = Math.max(10, Math.ceil(max / 2) * 2); const t = []; for (let v = 0; v <= top; v += 2) t.push(v); return t; },
      tip: it => { if (!it.v) return "<b>" + bucketName(it, grain) + "</b><br>No sleep recorded"; const t = it.v;
-       return "<b>" + bucketName(it, grain) + "</b>" + (grain !== "day" ? ' <span class="m">(avg of ' + it.n + ' nights)</span>' : "") + '<br>Asleep <span class="m">' + hm(t.asleep*60) + "</span><br>" +
+       return "<b>" + bucketName(it, grain) + "</b>" + (grain !== "day" ? ' <span class="m">(avg of ' + it.n + ' nights)</span>' : "") + (it.bad ? '<br><span style="color:var(--sl-att)">Long wake-up: ' + it.longest_awake_min + 'm</span>' : "") + '<br>Asleep <span class="m">' + hm(t.asleep*60) + "</span><br>" +
        '<i class="sw st" style="background:var(--st-deep)"></i>Deep <span class="m">' + hm(t.deep*60) + '</span><br><i class="sw st" style="background:var(--st-rem)"></i>REM <span class="m">' + hm(t.rem*60) + "</span><br>" +
        '<i class="sw st" style="background:var(--st-light)"></i>Light <span class="m">' + hm(t.light*60) + '</span><br><i class="sw st" style="background:var(--st-awake)"></i>Awake <span class="m">' + hm(t.awake*60) + "</span>"; }});
 }
@@ -641,8 +692,8 @@ function renderRHR(){
   const line = all.filter(o => o.avg != null).map(o => ({x: o.x, y: o.avg}));
   const f = dn(r.from);
   lineChart(host, [{pts, dotColor: "--heart", line, lineColor: "--ink-2"}],
-    {x: [f, TODAY], padY: 1.5, fmtY: v => v, xticks: dateTicks(f, TODAY), label: "Resting heart rate trend",
-     tip: q => grain === "day" ? "<b>" + fmtDayNav(q.x) + '</b><br>Resting <span class="m">' + q.y + ' bpm</span>' + (q.raw.avg != null ? '<br>30-day avg <span class="m">' + q.raw.avg.toFixed(1) + "</span>" : "")
+    {x: [f, TODAY], padY: 1.5, fmtY: v => v, xticks: dateTicks(f, TODAY), label: "Lowest sleeping heart rate trend",
+     tip: q => grain === "day" ? "<b>" + fmtDayNav(q.x) + '</b><br>Lowest sleeping <span class="m">' + q.y + ' bpm</span>' + (q.raw.avg != null ? '<br>30-day avg <span class="m">' + q.raw.avg.toFixed(1) + "</span>" : "")
        : "<b>" + bucketName({a: dn(q.raw.p.a), b: dn(q.raw.p.b)}, grain) + '</b><br>Average <span class="m">' + q.y.toFixed(1) + ' bpm</span><br><span class="m">' + q.raw.p.n + "</span> nights"});
 }
 function renderScale(which){
@@ -664,6 +715,8 @@ function renderScale(which){
   const lm = d.points[d.points.length - 1];
   read.innerHTML = 'Median <span class="num">' + conv(lm.median).toFixed(1) + unit + "</span> on " + fmtShort(dn(lp(lm.ts).date));
   const eras = d.eras.map(e => ({name: srcName(e.source), from: toX(e.from), to: toX(e.to)}));
+  if (which === "wt") { const bc = TRENDS.body_cleanup || {}; const prof = (d.profile || []).length;
+    document.getElementById("wt-note").textContent = "Scale readings only. Hidden in this range: " + (bc.mirrored || 0) + " duplicate copies written through the Fitbit API, " + (bc.rewrites || 0) + " re-weighs within 30 minutes (the last one is kept), " + (bc.excluded || 0) + " readings on excluded dates" + (prof ? ", and " + prof + " profile weights typed into Polar Flow or Samsung Health" : "") + ". Arboleaf dates have been seen to be wrong."; }
   lineChart(host, [{pts, dotColor: which === "wt" ? "--weight" : "--fat", dotOpacity: .45,
       line: d.points.map(w => ({x: toX(w.ts), y: conv(w.median)})), lineColor: which === "wt" ? "--weight" : "--fat"}],
     {x: [f, TODAY + 1], padY: which === "wt" ? 1 : 0.4, fmtY: v => which === "wt" ? v : v + "%", xticks: dateTicks(f, TODAY), label: which === "wt" ? "Weight trend" : "Body fat trend",
@@ -685,8 +738,47 @@ function renderExercise(){
        (v.Biking ? '<br><i class="sw st" style="background:var(--ex-bike)"></i>Biking <span class="m">' + hm(v.Biking) + "</span>" : "") +
        (v.Other ? '<br><i class="sw st" style="background:var(--ex-other)"></i>Other <span class="m">' + hm(v.Other) + "</span>" : ""); }});
 }
+function renderSteps(){
+  const st = TRENDS.steps, grain = st.grain, host = document.getElementById("c-steps");
+  document.getElementById("steps-dotlabel").textContent = grain === "day" ? "Samsung daily total" : grain === "week" ? "Weekly average of days with data" : "Monthly average of days with data";
+  const items = toItems(st.items).map(p => Object.assign(p, {v: p.value != null ? {steps: p.value} : null}));
+  const withData = items.filter(i => i.v);
+  if (!withData.length) { document.getElementById("steps-readout").textContent = ""; empty(host, "No Samsung step totals in this range yet."); return; }
+  const days = withData.reduce((a, i) => a + i.n, 0), avg = withData.reduce((a, i) => a + i.v.steps * i.n, 0) / days;
+  const missing = grain === "day" ? items.length - withData.length : null;
+  document.getElementById("steps-readout").innerHTML = 'Average <span class="num">' + Math.round(avg).toLocaleString() + '</span> a day' + (missing ? ' &middot; ' + missing + ' days missing' : "");
+  stackedBars(host, items, [{k: "steps", c: "--steps"}], {grain, label: "Steps", fmtY: v => v >= 1000 ? (v / 1000) + "k" : v,
+    tip: it => "<b>" + bucketName(it, grain) + "</b><br>" + (it.v ? (grain === "day" ? 'Steps <span class="m">' : 'Average <span class="m">') + Math.round(it.v.steps).toLocaleString() + "</span>" + (grain !== "day" ? '<br><span class="m">' + it.n + "</span> days with data" : "") : "Not sent by Samsung (missing, not zero)")});
+}
+const SX = {
+  sleeping_hrv: {title: "Sleeping HRV", unit: " ms", fmt: v => Math.round(v), brk: "hrv"},
+  sleeping_hr: {title: "Samsung sleeping heart rate", unit: " bpm", fmt: v => Math.round(v)},
+  skin_temp_delta: {title: "Skin temperature vs your recent nights", unit: " °C", fmt: v => (v > 0 ? "+" : "") + v.toFixed(2)},
+  respiratory_rate: {title: "Respiratory rate while asleep", unit: " /min", fmt: v => v.toFixed(1)},
+  spo2_avg: {title: "Blood oxygen (SpO2) while asleep", unit: "%", fmt: v => v.toFixed(1), brk: "spo2"},
+  stress_avg: {title: "Daily stress score", unit: "", fmt: v => v.toFixed(0)},
+};
+function renderSamsung(){
+  const box = document.getElementById("samsung-cards"); const sx = TRENDS.samsung;
+  if (!sx || !Object.keys(sx.series).length) { box.innerHTML = ""; return; }
+  const imp = sx.last_import; const when = imp && imp.imported_at ? fmtShort(dn(imp.imported_at.slice(0, 10))) + " " + imp.imported_at.slice(0, 4) : "not recorded";
+  box.innerHTML = Object.keys(SX).filter(k => sx.series[k]).map(k => '<div class="card"><div class="card-head"><h3>' + SX[k].title + '</h3><span class="readout" id="sx-r-' + k + '"></span></div><div class="chart" id="sx-c-' + k + '"></div><p class="note">From your Samsung export, updated when you import one (last import ' + esc(when) + ').</p></div>').join("");
+  const grain = sx.grain, f = dn(sx.from);
+  Object.keys(SX).filter(k => sx.series[k]).forEach(k => safe(SX[k].title, () => {
+    const cfg = SX[k], host = document.getElementById("sx-c-" + k);
+    const pts = sx.series[k].filter(p => p.value != null).map(p => ({x: grain === "day" ? dn(p.b) : (dn(p.a) + dn(p.b)) / 2, y: p.value, raw: p}));
+    if (!pts.length) { empty(host, "No values in this range."); return; }
+    const last = pts[pts.length - 1];
+    document.getElementById("sx-r-" + k).innerHTML = 'Latest <span class="num">' + cfg.fmt(last.y) + cfg.unit + "</span>";
+    lineChart(host, [{pts, dotColor: "--sx", line: pts.length > 1 ? pts.map(p => ({x: p.x, y: p.y})) : null, lineColor: "--sx"}],
+      {x: [f, TODAY], padY: k === "skin_temp_delta" ? 0.2 : 1, fmtY: v => v, xticks: dateTicks(f, TODAY), label: cfg.title, height: 180,
+       under: c => { if (cfg.brk) breakMarks(c, cfg.brk, d => c.x(d)); },
+       tip: q => "<b>" + (grain === "day" ? fmtDayNav(q.x) : bucketName({a: dn(q.raw.a), b: dn(q.raw.b)}, grain)) + '</b><br><span class="m">' + cfg.fmt(q.y) + cfg.unit + "</span>" + (grain !== "day" ? '<br><span class="m">' + q.raw.n + "</span> nights" : "")});
+  }));
+}
 function renderTrends(){
   if (!TRENDS) return;
+  safe("steps", renderSteps); safe("Samsung export metrics", renderSamsung);
   safe("sleep", renderSleep); safe("resting heart rate", renderRHR);
   safe("weight", () => renderScale("wt")); safe("body fat", () => renderScale("bf")); safe("exercise", renderExercise);
 }
@@ -704,11 +796,19 @@ const LANES = [{st:"awake", name:"Awake", c:"--st-awake"}, {st:"light", name:"Li
 function renderHypnogram(){
   const d = DAY_DATA, n = d.night, host = document.getElementById("c-hyp");
   document.getElementById("hyp-title").textContent = "Sleep stages, night into " + fmtDayNav(dn(d.date));
-  if (!n) { document.getElementById("hyp-readout").textContent = ""; empty(host, "No sleep recorded for this night. The watch was probably not worn."); return; }
-  const sp = lp(n.start_ts);
+  if (!n) { document.getElementById("hyp-readout").textContent = ""; document.getElementById("day-samsung").hidden = true; empty(host, "No sleep recorded for this night. The watch was probably not worn."); return; }
+  const loc = n.local || {}; const sp = n.local ? {date: loc.start_date, minutes: loc.start_min} : lp(n.start_ts);
   const bed = sp.minutes + (sp.date === d.date ? 1440 : 0);
   const dur = (n.end_ts - n.start_ts) / 60;
-  document.getElementById("hyp-readout").innerHTML = '<span class="num">' + clock(bed) + '</span> to <span class="num">' + clock(bed + dur) + '</span>, asleep <span class="num">' + hm(n.asleep_min) + "</span> " + sleepLabelHtml(n.score);
+  document.getElementById("hyp-readout").innerHTML = '<span class="num">' + clock(bed) + '</span> to <span class="num">' + clock(bed + dur) + '</span>' + (loc.away ? ' <span class="srcnote">(local time, ' + utcLabel(n.offset_s) + ')</span>' : "") + ', asleep <span class="num">' + hm(n.asleep_min) + "</span> " + sleepLabelHtml(n.score) + badFlagHtml(n.bad) + (n.parts > 1 ? ' <span class="srcnote hint" title="Samsung recorded this night as ' + n.parts + ' sessions around a wake-up; they are joined here and the gap counts as awake.">' + n.parts + " sessions joined</span>" : "");
+  const strip = document.getElementById("day-samsung"), sx = n.samsung;
+  if (sx) {
+    const items = [["Samsung sleep score", sx.sleep_score, v => Math.round(v)], ["Sleeping HR", sx.sleeping_hr, v => Math.round(v) + " bpm"], ["Sleeping HRV", sx.sleeping_hrv, v => Math.round(v) + " ms"],
+      ["Skin temp vs recent", sx.skin_temp_delta, v => (v > 0 ? "+" : "") + v.toFixed(2) + " °C"], ["Respiratory rate", sx.respiratory_rate, v => v.toFixed(1) + " /min"],
+      ["SpO2", sx.spo2_avg, v => v.toFixed(1) + "%"], ["Low SpO2 time", sx.spo2_low_duration, v => Math.round(v) + " min"], ["Stress (day)", sx.stress_avg, v => Math.round(v)]].filter(x => x[1] != null);
+    strip.innerHTML = items.map(x => "<span>" + x[0] + " <b>" + esc(x[2](x[1])) + "</b></span>").join("") + '<span class="srcnote">From your Samsung export, updated when you import one.</span>';
+    strip.hidden = !items.length;
+  } else { strip.hidden = true; strip.innerHTML = ""; }
   if (!n.stages.length) { empty(host, "This night was recorded without stage detail (asleep " + hm(n.asleep_min) + ")."); return; }
   const segs = n.stages.map(x => ({st: STAGE_LANE[x[2]], code: x[2], s: x[0], len: x[1]}));
   const startH = Math.floor(bed / 60) * 60, endH = Math.ceil((bed + dur) / 60) * 60;
@@ -732,7 +832,7 @@ function renderHypnogram(){
   hit.addEventListener("pointermove", e => { const p = svgPoint(c, e); const m = startH + (p.x - c.pad.l) / c.pw * (endH - startH) - bed;
     const s = segs.find(q => m >= q.s && m < q.s + q.len); if (!s) { c.hideTip(); return; }
     const name = s.code === "s" ? "Asleep (no stage detail)" : LANES[idx(s.st)].name;
-    c.showTip("<b>" + name + '</b><br><span class="m">' + clock(bed + s.s) + " to " + clock(bed + s.s + s.len) + '</span><br><span class="m">' + hm(s.len) + "</span>", p.px, p.py); });
+    c.showTip("<b>" + name + '</b><br><span class="m">' + clock(bed + s.s) + " to " + clock(bed + s.s + s.len) + '</span><br><span class="m">' + hm(s.len) + "</span>" + (s.code === "a" && s.len >= 15 ? '<br><span style="color:var(--sl-att)">Long wake-up</span>' : ""), p.px, p.py); });
   hit.addEventListener("pointerleave", () => c.hideTip());
 }
 function renderDayHR(){
@@ -756,6 +856,13 @@ function renderDayHR(){
   const c = makeChart(host, {x: [0, span], y: [bottom, top], yTicks: yt, height: 220, label: "Heart rate through the day", pad: {t: 16}});
   const band = (a, z, style, label) => { a = Math.max(0, a); z = Math.min(span, z); if (z <= a) return; el("rect", {x: c.x(a), y: c.pad.t, width: Math.max(0, c.x(z) - c.x(a)), height: c.ph, style}, c.svg);
     if (label && c.x(z) - c.x(a) > label.length * 6.2) { const t = el("text", {x: c.x(a) + 4, y: c.pad.t - 4}, c.svg); t.textContent = label; } };
+  const z = d.zone2, zl = document.getElementById("zone-legend");
+  if (z && z.hi > bottom && z.lo < top) {
+    el("rect", {x: c.pad.l, y: c.y(Math.min(top, z.hi)), width: c.pw, height: Math.max(0, c.y(Math.max(bottom, z.lo)) - c.y(Math.min(top, z.hi))), style: "fill:var(--zone)"}, c.svg);
+    zl.hidden = false;
+    document.getElementById("zone-legend-text").textContent = "Zone 2 " + z.lo + " to " + z.hi + " bpm";
+    zl.title = "Estimated from your data, not clinical: 60 to 70 percent of heart-rate reserve between " + z.rest_hr + " bpm (" + (z.rest_source === "setting" ? "your setting" : "lowest sleeping heart rate") + ") and " + z.max_hr + " bpm (" + (z.max_source === "setting" ? "your setting" : "95th percentile of workout maximums") + ").";
+  } else zl.hidden = true;
   if (wake != null) band(0, wake, "fill:var(--asleep)", "Asleep");
   if (bedNext != null) band(bedNext, span, "fill:var(--asleep)", "Asleep");
   ws.forEach(w => band(w.a, w.b, "fill:var(--workout)", w.category));
@@ -780,12 +887,18 @@ function renderDayHR(){
   hit.addEventListener("pointerleave", () => { c.hideTip(); cross.setAttribute("visibility", "hidden"); });
 }
 const workoutMinutes = w => (w.active_s != null ? w.active_s : w.end_ts - w.start_ts) / 60;
+function zoneTag(w, z){
+  if (!z || !w.avg_hr) return "";
+  const a = Math.round(w.avg_hr);
+  const where = a < z.lo ? "below Zone 2" : a > z.hi ? "above Zone 2" : "avg in Zone 2";
+  return ' <span class="zone-tag" title="Zone 2 ' + z.lo + " to " + z.hi + ' bpm, estimated from your data, not clinical">· ' + where + "</span>";
+}
 function renderSessions(){
   const ses = DAY_DATA.workouts, host = document.getElementById("sessions");
   document.getElementById("wo-readout").innerHTML = ses.length ? '<span class="num">' + hm(ses.reduce((a, s) => a + workoutMinutes(s), 0)) + "</span> total" : "";
   if (!ses.length) { host.innerHTML = '<div class="empty" style="display:block;border-top:1px dashed var(--axis)">No workouts recorded.</div>'; return; }
-  host.innerHTML = ses.map(s => '<div><i class="sw st" style="background:var(' + EXCOL[s.category] + ')"></i><span><b>' + esc(s.name || s.category) + '</b> <span class="num">' + clock(lp(s.start_ts).minutes) + '</span></span><span class="num">' + hm(workoutMinutes(s)) + '</span><span class="num">' +
-    (s.avg_hr ? "avg " + Math.round(s.avg_hr) : "") + (s.max_hr ? " · max " + Math.round(s.max_hr) : "") + (s.avg_hr || s.max_hr ? " bpm" : "") + (s.parts > 1 ? " · " + s.parts + " segments" : "") + "</span></div>").join("");
+  host.innerHTML = ses.map(s => '<div><i class="sw st" style="background:var(' + EXCOL[s.category] + ')"></i><span><b>' + esc(s.name || s.category) + '</b> <span class="num">' + clock(lpo(s.start_ts, s.offset_s).minutes) + '</span></span><span class="num">' + hm(workoutMinutes(s)) + '</span><span class="num">' +
+    (s.avg_hr ? "avg " + Math.round(s.avg_hr) : "") + (s.max_hr ? " · max " + Math.round(s.max_hr) : "") + (s.avg_hr || s.max_hr ? " bpm" : "") + (s.parts > 1 ? " · " + s.parts + " segments" : "") + zoneTag(s, DAY_DATA.zone2) + "</span></div>").join("");
 }
 async function renderDay(){
   if (!DAYSEL) return;
@@ -804,12 +917,19 @@ const shiftDate = (s, n) => new Date((dn(s) + n) * DAY).toISOString().slice(0, 1
 /* ---------- top: status + summary ---------- */
 function sleepLabelHtml(sc){
   if (!sc) return "";
+  const bands = (SUMMARY && SUMMARY.settings && SUMMARY.settings.sleep_bands) || [90, 70, 50];
+  const bandText = "Excellent " + bands[0] + "+, Good " + bands[1] + "+, Fair " + bands[2] + "+, Attention below. Samsung does not publish its cutoffs; these are a setting.";
+  if (sc.samsung) {
+    return '<span class="slabel ' + sc.label + '" tabindex="0">' + sc.label + ' <span class="sc">' + sc.score + '</span><span class="tt" role="tooltip"><b>Samsung sleep score ' + sc.score + ": " + sc.label + "</b>" +
+      "Samsung's own score for this night, from your imported export." + (sc.ours != null ? " Our estimate from the same stages: " + sc.ours + "." : "") + '<span class="s">' + bandText + "</span></span></span>";
+  }
   const f = sc.facts, p = sc.parts;
-  const rows = [["Time asleep", hm(f.asleep_min), p.duration], ["Efficiency", f.efficiency + "%", p.efficiency], ["Deep (physical recovery)", f.deep_pct + "%", p.deep],
-    ["REM (mental recovery)", f.rem_pct + "%", p.rem], ["Awake after falling asleep", hm(f.waso_min) + ", " + f.wakeups + "x", p.awakenings], ["Sleep cycles", String(f.cycles), p.cycles]];
-  return '<span class="slabel ' + sc.label + '" tabindex="0">' + sc.label + ' <span class="sc">' + sc.score + '</span><span class="tt" role="tooltip"><b>Sleep score ' + sc.score + ": " + sc.label + "</b>" +
+  const pts = v => v == null ? "" : "+" + v.toFixed(1);
+  const rows = [["Time asleep", hm(f.asleep_min), pts(p.hours)], ["Efficiency", f.efficiency + "%", pts(p.efficiency)], ["Deep (physical recovery)", f.deep_pct + "%", pts(p.deep_frac)],
+    ["REM (mental recovery)", f.rem_pct + "%", pts(p.rem_frac)], ["Awake after falling asleep", hm(f.waso_min), pts(p.waso_min)], ["Wake-ups of 3+ minutes", String(f.wakeups), pts(p.wakeups)], ["Sleep cycles", String(f.cycles), pts(p.cycles)]];
+  return '<span class="slabel ' + sc.label + '" tabindex="0">' + sc.label + ' <span class="sc">' + sc.score + '</span><span class="tt" role="tooltip"><b>Estimated sleep score ' + sc.score + ": " + sc.label + "</b>" +
     '<span class="g">' + rows.map(r => "<span>" + r[0] + "</span><span>" + r[1] + "</span><span>" + r[2] + "</span>").join("") + "</span>" +
-    '<span class="s">Our estimate using the factors Samsung scores. Excellent 88+, Good 75+, Fair 55+, Attention below. Tuned to match Samsung; may differ on some nights.</span></span></span>';
+    '<span class="s">Estimate: points per factor from a model fitted to Samsung\'s own scores. Import a Samsung export to see Samsung\'s score instead. ' + bandText + "</span></span></span>";
 }
 let SUMMARY = null;
 function renderTop(){
@@ -849,12 +969,12 @@ function renderTop(){
   const STAGES = [["deep","Deep"],["rem","REM"],["light","Light"],["awake","Awake"]];
   let nightHtml;
   if (n) {
-    const tot = (n.end_ts - n.start_ts) / 60; const sp = lp(n.start_ts), ep = lp(n.end_ts);
+    const tot = (n.end_ts - n.start_ts) / 60; const sp = lpo(n.start_ts, n.offset_s), ep = lpo(n.end_ts, n.offset_s);
     const val = k => n[k + "_min"] || 0;
     const pct = k => Math.round(val(k) / tot * 100);
     document.getElementById("ln-sub").textContent = "Night into " + fmtDayNav(dn(n.wake_date));
     nightHtml = '<div><span class="labelrow"><span class="label">Asleep</span>' + sleepLabelHtml(n.score) + '</span><span class="big">' + Math.floor(n.asleep_min / 60) + "<small>h</small> " + String(Math.round(n.asleep_min % 60)).padStart(2, "0") + "<small>m</small></span>" +
-      '<span class="sub tn">' + clock(sp.minutes) + " to " + clock(ep.minutes) + ", in bed " + hm(tot) + "</span>" +
+      '<span class="sub tn">' + clock(sp.minutes) + " to " + clock(ep.minutes) + ", in bed " + hm(tot) + (n.local && n.local.away ? " (local time, " + utcLabel(n.offset_s) + ")" : "") + badFlagHtml(n.bad) + "</span>" +
       (n.stages.length ? '<div class="stagebar" aria-hidden="true">' + STAGES.map(([k]) => '<span style="width:' + (val(k) / tot * 100) + "%;background:var(--st-" + k + ')"></span>').join("") + "</div>" +
       '<div class="stagetable">' + STAGES.map(([k, name]) => '<i class="sw st" style="background:var(--st-' + k + ')"></i><span class="n">' + name + '</span><span class="h">' + hm(val(k)) + '</span><span class="p">' + pct(k) + "%</span>").join("") + "</div>"
       : '<span class="sub">No stage detail for this night.</span>') + "</div>";
@@ -863,14 +983,14 @@ function renderTop(){
     nightHtml = '<div><span class="label">Asleep</span><span class="sub">No sleep stored yet.</span></div>';
   }
   const r = S.rhr, a30 = S.rhr30;
-  const rhrHtml = '<div><span class="label">Resting heart rate</span>' + (r != null
+  const rhrHtml = '<div><span class="label hint" tabindex="0" title="The lowest 30-minute average heart rate while asleep. It runs about 5 bpm below Samsung\'s sleeping heart rate and below Fitbit\'s resting heart rate.">Lowest sleeping heart rate</span>' + (r != null
     ? '<span class="big">' + Math.round(r) + "<small>bpm</small></span>" + (a30 != null ? '<span class="sub tn"><span class="' + (r - a30 <= 0 ? "delta-good" : "") + '">' + (r - a30 <= 0 ? "▼" : "▲") + " " + Math.abs(r - a30).toFixed(1) + "</span> vs 30-day average of " + a30.toFixed(1) + "</span>" : "")
     : '<span class="sub">Not available for this night.</span>') + "</div>";
   const ses = S.workouts || [];
-  const woHtml = '<div><span class="label">Workouts today</span><div class="wo">' + (ses.length ? ses.map(x => { const s0 = lp(x.start_ts), s1 = lp(x.end_ts);
+  const woHtml = '<div><span class="label">Workouts today</span><div class="wo">' + (ses.length ? ses.map(x => { const s0 = lpo(x.start_ts, x.offset_s), s1 = lpo(x.end_ts, x.offset_s);
       return '<div class="wo-row"><i class="sw st" style="background:var(' + EXCOL[x.category] + ')"></i><span class="t">' + esc(x.name || x.category) + '</span><span class="dur">' + hm(workoutMinutes(x)) + "</span>" +
-      '<span class="meta">' + clock(s0.minutes) + " to " + clock(s1.minutes) + (x.avg_hr ? " · avg " + Math.round(x.avg_hr) + " bpm" : "") + (x.max_hr ? " · max " + Math.round(x.max_hr) + " bpm" : "") + (x.parts > 1 ? " · " + x.parts + " segments, " + hm((x.end_ts - x.start_ts) / 60) + " elapsed" : "") + "</span></div>"; }).join("")
-    : '<span class="sub">No workouts yet today.</span>') + '</div><span class="sub" style="margin-top:6px">Watch steps: not available yet</span></div>';
+      '<span class="meta">' + clock(s0.minutes) + " to " + clock(s1.minutes) + (x.avg_hr ? " · avg " + Math.round(x.avg_hr) + " bpm" : "") + (x.max_hr ? " · max " + Math.round(x.max_hr) + " bpm" : "") + (x.parts > 1 ? " · " + x.parts + " segments, " + hm((x.end_ts - x.start_ts) / 60) + " elapsed" : "") + zoneTag(x, S.zone2) + "</span></div>"; }).join("")
+    : '<span class="sub">No workouts yet today.</span>') + '</div><span class="sub" style="margin-top:6px">' + (S.steps_today != null ? 'Steps today <span class="num">' + S.steps_today.toLocaleString() + "</span>" : "Steps today: not synced yet") + (S.steps_yesterday != null ? ' &middot; yesterday <span class="num">' + S.steps_yesterday.toLocaleString() + "</span>" : "") + "</span></div>";
   document.getElementById("summary").innerHTML = nightHtml + rhrHtml + woHtml;
 }
 
@@ -892,7 +1012,11 @@ function renderHealth(){
   }
   cal.innerHTML = html;
 
-  const rows = [["Sleep", h.sources.sleep], ["Workouts", h.sources.workouts], ["Weight", h.sources.weight], ["Body fat", h.sources.fat]].filter(r => r[1].length);
+  const stepSrc = (h.sources.steps || []).map(s => ({source: s.source, n: s.n, a: Math.floor(Date.parse(s.a_date + "T12:00:00Z") / 1000), b: Math.floor(Date.parse(s.b_date + "T12:00:00Z") / 1000)}));
+  const rows = [["Sleep", h.sources.sleep], ["Workouts", h.sources.workouts], ["Weight", h.sources.weight], ["Body fat", h.sources.fat], ["Steps", stepSrc]].filter(r => r[1].length);
+  const imp = h.samsung_import;
+  document.getElementById("samsung-import-note").textContent = imp ? "Samsung export " + (imp.export ? imp.export.slice(0, 4) + "-" + imp.export.slice(4, 6) + "-" + imp.export.slice(6, 8) : "") + " imported " + (imp.imported_at || "").slice(0, 10) + ". It fills nights, workouts, heart rate and steps Google never received, and adds Samsung-only nightly values. Run tools/samsung_import.py after a new export."
+    : "No Samsung export imported yet. tools/samsung_import.py loads one: it fills gaps Google never received and adds Samsung's own sleep score, HRV, skin temperature, respiratory rate, SpO2 and stress.";
   const host = document.getElementById("c-eras");
   if (!rows.length) { empty(host, "No data stored yet."); }
   else {
@@ -925,7 +1049,8 @@ async function loadHealth(){ try { HEALTH = await api("/api/health"); safe("data
 
 function applySettings(){
   const set = SUMMARY.settings;
-  document.querySelectorAll("#p-alerts [data-k]").forEach(inp => { if (inp.type === "checkbox") inp.checked = Boolean(set[inp.dataset.k]); else inp.value = set[inp.dataset.k]; });
+  document.querySelectorAll("#p-alerts [data-k]").forEach(inp => { if (inp.type === "checkbox") inp.checked = Boolean(set[inp.dataset.k]); else inp.value = set[inp.dataset.k] == null ? "" : set[inp.dataset.k]; });
+  const z = SUMMARY.zone2; document.getElementById("zone-now").textContent = z ? "Now: Zone 2 " + z.lo + " to " + z.hi + " bpm (max " + z.max_hr + ", rest " + z.rest_hr + ")" : "Not enough data yet";
   document.getElementById("alerts-sub").textContent = SUMMARY.notifier === "pushover" ? "Pushover, pipeline problems only" : "Pushover not configured: alerts are logged, not sent";
 }
 
@@ -954,7 +1079,7 @@ document.getElementById("csv").addEventListener("click", () => { window.location
 document.getElementById("pull").addEventListener("click", async e => {
   const btn = e.currentTarget, out = document.getElementById("pull-result"); btn.disabled = true; out.textContent = "Pulling from Google Health...";
   try { const r = await api("/api/pull-now", {method: "POST"});
-    out.textContent = r.ok ? "Done: " + r.counts.hr_buckets + " heart-rate buckets, " + r.counts.nights + " sleep sessions, " + r.counts.workouts + " workouts, " + r.counts.body + " body readings (" + r.window_days + "-day window)." : "Pull failed: " + r.error;
+    out.textContent = r.ok ? "Done: " + r.counts.hr_buckets + " heart-rate buckets, " + r.counts.nights + " sleep sessions, " + r.counts.workouts + " workouts, " + r.counts.body + " body readings, " + (r.counts.steps_days || 0) + " step days (" + r.window_days + "-day window)." : "Pull failed: " + r.error;
     dayCache.clear(); await loadAll(); await loadHealth();
   } catch (err) { out.textContent = "Pull failed: " + err.message; }
   btn.disabled = false;
@@ -970,7 +1095,7 @@ document.getElementById("p-alerts").addEventListener("change", e => {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
     const out = document.getElementById("settings-result");
-    const patch = {}; patch[inp.dataset.k] = inp.type === "checkbox" ? inp.checked : Number(inp.value);
+    const patch = {}; patch[inp.dataset.k] = inp.type === "checkbox" ? inp.checked : inp.value === "" ? null : Number(inp.value);
     try { const r = await api("/api/settings", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(patch)}); SUMMARY.settings = r.settings; applySettings(); out.textContent = "Saved."; }
     catch (err) { out.textContent = "Not saved: " + err.message; }
   }, 300);

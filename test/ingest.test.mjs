@@ -82,7 +82,7 @@ test("rollUp buckets, workouts and body readings map to rows", () => {
 
   const wt = bodyRow({ name: "a/9", dataSource: { application: { packageName: "com.qingniu.arboleaf" } },
     weight: { sampleTime: { physicalTime: "2026-03-15T12:00:00Z" }, weightGrams: 75000 } }, "weight_g");
-  assert.deepEqual(wt, { id: "w:9", kind: "weight_g", ts: 1773576000, value: 75000, source: "com.qingniu.arboleaf" });
+  assert.deepEqual(wt, { id: "w:9", kind: "weight_g", ts: 1773576000, value: 75000, offset_s: null, source: "com.qingniu.arboleaf" });
   assert.equal(bodyRow({ name: "a/9", bodyFat: { sampleTime: { physicalTime: "2026-03-15T12:00:00Z" }, percentage: 20.5 } }, "fat_pct").id, "f:9");
 });
 

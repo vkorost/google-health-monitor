@@ -87,6 +87,25 @@ export function localParts(epochS, tz) {
 
 export const localDate = (epochS, tz) => localParts(epochS, tz).date;
 
+/** "-14400s" -> -14400. Anything else -> null. */
+export function offsetSeconds(v) {
+  const m = /^(-?\d+(?:\.\d+)?)s$/.exec(String(v ?? ""));
+  return m ? Math.round(Number(m[1])) : null;
+}
+
+/**
+ * Local parts using the UTC offset the record carried when it was written, so a
+ * night abroad keeps its own clock. Falls back to the home zone when the record
+ * has no offset (heart-rate rollUp buckets never do).
+ */
+export function localPartsAt(epochS, offsetS, tz) {
+  if (offsetS === null || offsetS === undefined) return localParts(epochS, tz);
+  const local = epochS + offsetS;
+  const day = Math.floor(local / 86400);
+  return { date: dayString(day), minutes: Math.floor((local - day * 86400) / 60) };
+}
+export const localDateAt = (epochS, offsetS, tz) => localPartsAt(epochS, offsetS, tz).date;
+
 /** Epoch seconds of local midnight starting `date` in `tz`. DST-safe. */
 export function localMidnight(date, tz) {
   const [y, m, d] = date.split("-").map(Number);
@@ -160,11 +179,13 @@ export function nightRow(dp, tz) {
   const totals = compact.length
     ? stageTotals(compact)
     : { deep_min: 0, rem_min: 0, light_min: 0, awake_min: 0, asleep_min: round1((end - start) / 60) };
+  const offset = offsetSeconds(s.interval?.endUtcOffset) ?? offsetSeconds(s.interval?.startUtcOffset);
   return {
     id: idOf(dp),
-    wake_date: localDate(end, tz),
+    wake_date: localDateAt(end, offset, tz),
     start_ts: start,
     end_ts: end,
+    offset_s: offset,
     source: sourceOf(dp),
     ...totals,
     stages_json: JSON.stringify(compact),
@@ -172,7 +193,13 @@ export function nightRow(dp, tz) {
   };
 }
 
+const categoryCache = new Map();
 export function exerciseCategory(type) {
+  let c = categoryCache.get(type);
+  if (c === undefined) { c = exerciseCategoryOf(type); categoryCache.set(type, c); }
+  return c;
+}
+function exerciseCategoryOf(type) {
   const t = String(type || "").toUpperCase();
   // Observed types include SWIMMING, BIKING, OUTDOOR_BIKE, SPINNING.
   if (t.includes("SWIM")) return "Swimming";
@@ -200,6 +227,7 @@ export function workoutRow(dp) {
     active_s: seconds(e.activeDuration) ?? end - start,
     avg_hr: Number.isFinite(avg) && avg > 0 ? avg : null,
     max_hr: null, // filled from hr_buckets after they are stored
+    offset_s: offsetSeconds(e.interval?.startUtcOffset),
     source: sourceOf(dp),
   };
 }
@@ -210,7 +238,28 @@ export function bodyRow(dp, kind) {
   const ts = toEpoch(src.sampleTime?.physicalTime);
   const value = kind === "weight_g" ? Number(src.weightGrams) : Number(src.percentage);
   if (!Number.isFinite(ts) || !Number.isFinite(value)) return null;
-  return { id: `${kind === "weight_g" ? "w" : "f"}:${idOf(dp)}`, kind, ts, value, source: sourceOf(dp) };
+  return { id: `${kind === "weight_g" ? "w" : "f"}:${idOf(dp)}`, kind, ts, value,
+    offset_s: offsetSeconds(src.sampleTime?.utcOffset), source: sourceOf(dp) };
+}
+
+export const SAMSUNG_PKG = "com.sec.android.app.shealth";
+
+/**
+ * Samsung Health writes steps to Health Connect as one record per local day
+ * (interval from local midnight to the end of the day, or to "now" for today).
+ * Only those records are used: phone pedometer counts miss every day the phone
+ * stays behind.
+ */
+export function stepsDailyRow(dp, tz) {
+  if (sourceOf(dp) !== SAMSUNG_PKG) return null;
+  const st = dp.steps || {};
+  const start = toEpoch(st.interval?.startTime);
+  const count = Number(st.count);
+  if (!Number.isFinite(start) || !Number.isFinite(count)) return null;
+  const c = st.interval?.civilStartTime?.date;
+  const date = c ? `${c.year}-${String(c.month).padStart(2, "0")}-${String(c.day).padStart(2, "0")}`
+    : localDateAt(start, offsetSeconds(st.interval?.startUtcOffset), tz);
+  return { date, steps: count, source: SAMSUNG_PKG };
 }
 
 export function bucketRows(rollupDataPoints) {

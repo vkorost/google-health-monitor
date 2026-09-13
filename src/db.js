@@ -14,12 +14,18 @@ export const TABLES = {
   hr_buckets: { key: ["start_ts"], cols: ["start_ts", "min", "avg", "max"] },
   nights: {
     key: ["id"],
-    cols: ["id", "wake_date", "start_ts", "end_ts", "source", "deep_min", "rem_min", "light_min",
+    cols: ["id", "wake_date", "start_ts", "end_ts", "offset_s", "source", "deep_min", "rem_min", "light_min",
            "awake_min", "asleep_min", "stages_json", "updated_at"],
   },
-  workouts: { key: ["id"], cols: ["id", "type", "name", "start_ts", "end_ts", "active_s", "avg_hr", "max_hr", "source"] },
-  body: { key: ["id"], cols: ["id", "kind", "ts", "value", "source"] },
+  workouts: { key: ["id"], cols: ["id", "type", "name", "start_ts", "end_ts", "offset_s", "active_s", "avg_hr", "max_hr", "source"] },
+  body: { key: ["id"], cols: ["id", "kind", "ts", "offset_s", "value", "source"] },
   rhr_daily: { key: ["date"], cols: ["date", "bpm", "night_id"] },
+  steps_daily: { key: ["date"], cols: ["date", "steps", "source"] },
+  samsung_nightly: {
+    key: ["wake_date"],
+    cols: ["wake_date", "sleep_score", "efficiency", "sleeping_hr", "sleeping_hrv", "skin_temp_delta",
+           "respiratory_rate", "spo2_avg", "spo2_low_duration", "stress_avg", "source_note"],
+  },
 };
 
 export function sqlValue(v) {

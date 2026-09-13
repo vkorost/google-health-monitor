@@ -2,7 +2,7 @@
 // objects out. Everything here runs under `node --test` with no D1 and no
 // network, the same discipline as detect.js in the Nest project.
 
-import { BUCKET_S, DAY_S, addDays, localParts } from "./ingest.js";
+import { BUCKET_S, DAY_S, addDays, localDateAt, localParts, localPartsAt } from "./ingest.js";
 
 // Calendar dates as integer day numbers for the hot loops below: string date
 // arithmetic allocates a Date per step, and the "all" range walks ~3,000 days
@@ -20,10 +20,64 @@ const round1 = (v) => Math.round(v * 10) / 10;
 
 // ------------------------------------------------------------ sleep
 
-/** For each wake_date keep the longest session: naps must not replace the night. */
+/*
+ * Split nights. Samsung sometimes records one night as two or more sessions
+ * around a wake-up. In its own export such sessions share a combined_id; the
+ * gaps between them reached 199 minutes, with 94% at or under 120 minutes, while
+ * sessions it did NOT combine were a nap or a separate night hours apart. Health
+ * Connect carries no combined_id, so sessions ending on the same wake date and
+ * separated by at most SPLIT_NIGHT_GAP_S are joined here, the gap counting as
+ * awake time.
+ */
+export const SPLIT_NIGHT_GAP_S = 120 * 60;
+
+const parseStagesJson = (j) => { if (Array.isArray(j)) return j; try { return JSON.parse(j || "[]"); } catch { return []; } };
+
+/** Join same-wake-date sessions separated by <= gapS. Rows keep the nights-table shape. */
+export function mergeSplitNights(nights, gapS = SPLIT_NIGHT_GAP_S) {
+  // One sort and one pass: the "all" range walks thousands of nights inside the CPU budget.
+  const sorted = nights.slice().sort((a, b) => (a.wake_date < b.wake_date ? -1 : a.wake_date > b.wake_date ? 1 : a.start_ts - b.start_ts));
+  const out = [];
+  let cur = null, curIsCopy = false;
+  const finish = () => {
+    if (!cur) return;
+    if (curIsCopy && cur._stages) cur.stages_json = JSON.stringify(cur._stages);
+    if (curIsCopy) delete cur._stages;
+    out.push(cur);
+  };
+  for (const n of sorted) {
+    if (cur && n.wake_date === cur.wake_date && n.start_ts - cur.end_ts <= gapS && n.start_ts >= cur.end_ts - 60) {
+      if (!curIsCopy) {
+        cur = { ...cur, ids: [cur.id], parts: 1, _stages: cur.stages_json !== undefined ? parseStagesJson(cur.stages_json).slice() : null };
+        curIsCopy = true;
+      }
+      const gapMin = Math.max(0, (n.start_ts - cur.end_ts) / 60);
+      if (cur._stages && n.stages_json !== undefined) {
+        const off = (cur.end_ts - cur.start_ts) / 60;
+        if (gapMin > 0) cur._stages.push([Math.round(off * 10) / 10, Math.round(gapMin * 10) / 10, "a"]);
+        const base = (n.start_ts - cur.start_ts) / 60;
+        for (const [o, len, c] of parseStagesJson(n.stages_json)) cur._stages.push([Math.round((base + o) * 10) / 10, len, c]);
+      }
+      for (const k of ["deep_min", "rem_min", "light_min", "asleep_min"]) cur[k] = (cur[k] || 0) + (n[k] || 0);
+      cur.awake_min = (cur.awake_min || 0) + (n.awake_min || 0) + gapMin;
+      cur.end_ts = Math.max(cur.end_ts, n.end_ts);
+      cur.offset_s = n.offset_s ?? cur.offset_s;
+      cur.ids.push(n.id);
+      cur.parts += 1;
+    } else {
+      finish();
+      cur = n;
+      curIsCopy = false;
+    }
+  }
+  finish();
+  return out;
+}
+
+/** For each wake_date the longest night after joining split sessions: naps must not replace the night. */
 export function mainNights(nights) {
   const best = new Map();
-  for (const n of nights) {
+  for (const n of mergeSplitNights(nights)) {
     const cur = best.get(n.wake_date);
     if (!cur || n.end_ts - n.start_ts > cur.end_ts - cur.start_ts) best.set(n.wake_date, n);
   }
@@ -96,6 +150,55 @@ export function rollingMedian(readings, days = 7) {
   });
 }
 
+// Weight entries from these apps are profile values typed into the app, not scale readings.
+export const PROFILE_WEIGHT_SOURCES = new Set(["fi.polar.polarflow", "com.sec.android.app.shealth"]);
+// Local dates whose body readings are known to be wrong (for example a scale app that stamped old
+// readings with the sync date). Stored in state "excluded_body_dates"; empty by default.
+// Example value: ["YYYY-MM-DD", "YYYY-MM-DD"]
+export const DEFAULT_EXCLUDED_BODY_DATES = [];
+
+/**
+ * Scale readings fit to chart. Rules, in order:
+ *  1. Profile entries (Polar Flow, Samsung Health) leave the scale series and are returned as `profile`.
+ *  2. A FITBIT_WEB_API reading that mirrors another source (same kind and value within 120 s) is dropped:
+ *     some scale apps also write through the Fitbit API, so every weigh-in would count twice.
+ *  3. Same-source re-weighs of one kind within 30 minutes collapse to the last one.
+ *  4. Readings on excluded local dates (a stored list, not code) are dropped.
+ * readings: {kind, ts, value, source, offset_s?}. Output sorted by ts.
+ */
+export function cleanBody(readings, { excludedDates = DEFAULT_EXCLUDED_BODY_DATES, tz = "America/New_York" } = {}) {
+  const sorted = readings.slice().sort((a, b) => a.ts - b.ts); // same-source repeat writes collapse in rule 3
+  const profile = [], scale = [];
+  for (const r of sorted) (PROFILE_WEIGHT_SOURCES.has(r.source) ? profile : scale).push(r);
+  // scale is sorted by ts, so the mirror search only scans neighbours within 120 s (linear, not quadratic).
+  const mirrored = new Set();
+  for (let i = 0; i < scale.length; i++) {
+    const r = scale[i];
+    if (r.source !== "FITBIT_WEB_API") continue;
+    for (let j = i - 1; j >= 0 && r.ts - scale[j].ts <= 120; j--) {
+      const o = scale[j];
+      if (o.source !== "FITBIT_WEB_API" && o.kind === r.kind && Math.abs(o.value - r.value) < 1e-6) { mirrored.add(r); break; }
+    }
+    if (mirrored.has(r)) continue;
+    for (let j = i + 1; j < scale.length && scale[j].ts - r.ts <= 120; j++) {
+      const o = scale[j];
+      if (o.source !== "FITBIT_WEB_API" && o.kind === r.kind && Math.abs(o.value - r.value) < 1e-6) { mirrored.add(r); break; }
+    }
+  }
+  const noMirror = scale.filter((r) => !mirrored.has(r));
+  const collapsed = [];
+  const lastIdx = new Map();
+  for (const r of noMirror) {
+    const key = r.kind + "|" + r.source;
+    const prevIdx = lastIdx.get(key);
+    if (prevIdx !== undefined && r.ts - collapsed[prevIdx].ts <= 30 * 60) collapsed[prevIdx] = r;
+    else { lastIdx.set(key, collapsed.length); collapsed.push(r); }
+  }
+  const excluded = new Set(excludedDates || []);
+  const kept = collapsed.filter((r) => !excluded.has(localDateAt(r.ts, r.offset_s, tz)));
+  return { scale: kept, profile, dropped: { mirrored: mirrored.size, rewrites: noMirror.length - collapsed.length, excluded: collapsed.length - kept.length } };
+}
+
 /** Contiguous runs of the same source, for scale-change bands on the charts. */
 export function sourceEras(readings) {
   const eras = [];
@@ -134,8 +237,7 @@ export function periods(from, to, grain) {
     for (;;) {
       const a = `${y}-${String(m).padStart(2, "0")}-01`;
       if (a > to) break;
-      const next = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
-      const b = addDays(next, -1);
+      const b = dateOf(Date.UTC(y, m, 1) / DAY_MS - 1); // last day of the month, via cached day strings
       out.push({ key: a.slice(0, 7), a: a < from ? from : a, b: b > to ? to : b });
       m++; if (m > 12) { m = 1; y++; }
     }
@@ -218,24 +320,40 @@ const WORKOUT_SOURCE_RANK = { "fi.polar.polarflow": 3, "com.sec.android.app.shea
  * shorter one. Stored rows stay untouched; this runs at read time.
  */
 export function dropDuplicateWorkouts(workouts) {
-  const rank = (w) => WORKOUT_SOURCE_RANK[w.source] || 1;
-  const ordered = [...workouts].sort((a, b) => rank(b) - rank(a) || (b.end_ts - b.start_ts) - (a.end_ts - a.start_ts));
-  const kept = [];
-  for (const w of ordered) {
-    const dup = kept.some((k) => k.category === w.category && k.source !== w.source &&
-      Math.min(k.end_ts, w.end_ts) - Math.max(k.start_ts, w.start_ts) >= 0.5 * Math.min(k.end_ts - k.start_ts, w.end_ts - w.start_ts));
-    if (!dup) kept.push(w);
+  // Sweep in start order: only workouts that overlap in time can be duplicates, so each one is
+  // compared with the few still running, not with every other workout.
+  const items = workouts.map((w) => ({ w, rank: WORKOUT_SOURCE_RANK[w.source] || 1, dur: w.end_ts - w.start_ts, lost: false }));
+  items.sort((a, b) => a.w.start_ts - b.w.start_ts);
+  const active = [];
+  for (const it of items) {
+    for (let i = active.length - 1; i >= 0; i--) if (active[i].w.end_ts <= it.w.start_ts) active.splice(i, 1);
+    for (const o of active) {
+      const a = it.w, b = o.w;
+      if (a.category !== b.category || a.source === b.source) continue;
+      if (Math.min(a.end_ts, b.end_ts) - Math.max(a.start_ts, b.start_ts) < 0.5 * Math.min(it.dur, o.dur)) continue;
+      // Higher-ranked source wins; on a tie the longer session wins.
+      const itWins = it.rank !== o.rank ? it.rank > o.rank : it.dur > o.dur;
+      if (itWins) o.lost = true; else it.lost = true;
+    }
+    active.push(it);
   }
-  return kept.sort((a, b) => a.start_ts - b.start_ts);
+  return items.filter((it) => !it.lost).map((it) => it.w);
 }
+
+/*
+ * Samsung auto-pause starts a new session at every stop. In Samsung's own export,
+ * gaps between consecutive bike sessions cluster under 5 minutes, thin out by 25,
+ * and are sparse between 45 and 70 minutes; nothing in the export links segments.
+ * 25 minutes joins stops at lights and short breaks without joining separate rides.
+ */
+export const WORKOUT_MERGE_GAP_S = 25 * 60;
 
 /**
  * Join workouts of the same category that follow each other within `gapS`.
- * Samsung auto-pause splits one ride into a new session at every traffic
- * light, although it is one ride. Stored rows stay untouched so
- * the rule can change later. Input sorted or not; output sorted by start.
+ * Stored rows stay untouched so the rule can change later. Input sorted or not;
+ * output sorted by start.
  */
-export function mergeWorkouts(workouts, gapS = 600) {
+export function mergeWorkouts(workouts, gapS = WORKOUT_MERGE_GAP_S) {
   const sorted = [...workouts].sort((a, b) => a.start_ts - b.start_ts);
   const out = [];
   for (const w of sorted) {
@@ -262,25 +380,8 @@ export function mergeWorkouts(workouts, gapS = 600) {
 
 // ------------------------------------------------------------ sleep score
 
-/*
- * Our own 0-100 sleep score using the factors Samsung names for its score
- * (total sleep, sleep cycles, awakenings, deep = physical recovery, REM =
- * mental recovery) plus efficiency. Samsung does not publish its formula, so
- * the curves and weights below are common-sense sleep-science anchors,
- * calibrated against one night the user's Samsung app rated Excellent.
- * Re-tune against your own Samsung export when one is available.
- */
-export const SLEEP_BANDS = [
-  // On the development account's ~730 Samsung-era nights these cutoffs gave
-  // roughly a third Excellent, two fifths Good, a sixth Fair and the rest Attention.
-  { min: 88, label: "Excellent" },
-  { min: 75, label: "Good" },
-  { min: 55, label: "Fair" },
-  { min: 0, label: "Attention" },
-];
-
-// piecewise-linear: points [[x, score], ...] sorted by x, clamped at both ends
-function curve(x, points) {
+// piecewise-linear: points [[x, y], ...] sorted by x, clamped at both ends
+export function curve(x, points) {
   if (x <= points[0][0]) return points[0][1];
   for (let i = 1; i < points.length; i++) {
     const [x1, y1] = points[i], [x0, y0] = points[i - 1];
@@ -289,53 +390,163 @@ function curve(x, points) {
   return points[points.length - 1][1];
 }
 
-const SCORE_WEIGHTS = { duration: 30, efficiency: 15, deep: 15, rem: 15, awakenings: 15, cycles: 10 };
+const parseStagesArr = (j) => { if (Array.isArray(j)) return j; try { return JSON.parse(j || "[]"); } catch { return []; } };
 
-/** stages: compact [[offsetMin, lenMin, code]]. Returns null for nights without stage detail. */
-export function sleepScore(stages, inBedMin) {
+/**
+ * Facts behind a night's score, from compact stages [[offsetMin, lenMin, code]].
+ * Awake time counts only between the first and last sleep (lying awake before
+ * sleep onset is latency, which efficiency already carries). A cycle ends with a
+ * REM episode; REM blocks less than 20 minutes apart are one episode.
+ */
+export function sleepFacts(stages, inBedMin) {
   if (!stages || !stages.length || !(inBedMin > 0)) return null;
   const t = { d: 0, r: 0, l: 0, a: 0, s: 0 };
   for (const [, len, c] of stages) t[c] = (t[c] || 0) + len;
   const asleep = t.d + t.r + t.l + t.s;
   if (asleep < 60) return null;
-
-  // Awake time only counts after the first sleep and before the last; lying awake before
-  // sleep onset is latency, which efficiency already penalises.
-  const firstSleep = stages.findIndex((s) => s[2] !== "a");
+  const firstSleep = stages.findIndex((x) => x[2] !== "a");
   let lastSleep = stages.length - 1;
   while (lastSleep > 0 && stages[lastSleep][2] === "a") lastSleep--;
-  let waso = 0, wakeups = 0;
+  let waso = 0, wakeups = 0, longestAwake = 0;
   for (let i = firstSleep; i <= lastSleep; i++) {
-    if (stages[i][2] === "a") { waso += stages[i][1]; if (stages[i][1] >= 3) wakeups++; }
+    if (stages[i][2] === "a") {
+      waso += stages[i][1];
+      if (stages[i][1] >= 3) wakeups++;
+      longestAwake = Math.max(longestAwake, stages[i][1]);
+    }
   }
-  // A cycle ends with a REM episode; REM blocks less than 20 minutes apart are one episode.
   let cycles = 0, lastRemEnd = -Infinity;
   for (const [off, len, c] of stages) {
     if (c !== "r") continue;
     if (off - lastRemEnd >= 20) cycles++;
     lastRemEnd = off + len;
   }
-
-  const h = asleep / 60;
-  const parts = {
-    duration: curve(h, [[4, 0], [6, 60], [7, 95], [7.5, 100], [9, 100], [10.5, 75]]),
-    efficiency: curve(asleep / inBedMin, [[0.7, 0], [0.8, 50], [0.88, 85], [0.93, 100]]),
-    deep: curve(t.d / asleep, [[0.05, 10], [0.1, 60], [0.15, 90], [0.18, 100]]),
-    rem: curve(t.r / asleep, [[0.08, 10], [0.14, 60], [0.19, 90], [0.22, 100]]),
-    awakenings: Math.min(curve(waso, [[20, 100], [45, 85], [90, 50], [150, 0]]), curve(wakeups, [[3, 100], [6, 70], [12, 20]])),
-    cycles: curve(cycles, [[1, 20], [2, 55], [3, 80], [4, 100]]),
-  };
-  let total = 0;
-  for (const k in SCORE_WEIGHTS) total += parts[k] * SCORE_WEIGHTS[k] / 100;
-  // Short sleep caps the score: a well-structured 4-hour night is still not a good night.
-  const score = Math.round(Math.min(total, 40 + parts.duration * 0.6));
   return {
-    score,
-    label: SLEEP_BANDS.find((b) => score >= b.min).label,
-    parts: Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, Math.round(v)])),
-    facts: { asleep_min: Math.round(asleep), efficiency: Math.round(asleep / inBedMin * 100), deep_pct: Math.round(t.d / asleep * 100),
-      rem_pct: Math.round(t.r / asleep * 100), waso_min: Math.round(waso), wakeups, cycles },
+    asleep_min: asleep, hours: asleep / 60, efficiency: asleep / inBedMin,
+    deep_frac: t.d / asleep, rem_frac: t.r / asleep, waso_min: waso, wakeups, cycles,
+    longest_awake_min: longestAwake, onset_offset_min: stages[firstSleep] ? stages[firstSleep][0] : 0,
   };
+}
+
+/*
+ * SLEEP_MODEL is fitted, not hand-set: tools/fit_sleep_score.py regresses
+ * Samsung's own sleep_score (from the "Download personal data" export) on the
+ * facts above for main nights present in both sources, holding out one night in
+ * five for validation. Each factor contributes points through a piecewise curve
+ * (values at fixed knots); the score is the intercept plus the sum, clamped to
+ * 0..100. The constants shipped here were fitted on one person's nights; re-run
+ * the script on your own export to refit them for you.
+ */
+export const SLEEP_MODEL = /* fitted: begin */ {"intercept": 38.01, "curves": {"hours": [[5.75, 0.0], [7.5, 12.83], [8.25, 10.69], [9.25, 1.49]], "efficiency": [[0.68, 0.0], [0.84, 8.68], [0.9, 11.83], [0.94, 12.26]], "deep_frac": [[0.02, 0.0], [0.08, 9.42], [0.11, 12.18], [0.18, 12.18]], "rem_frac": [[0.17, 0.0], [0.23, 4.99], [0.27, 4.99], [0.46, 9.57]], "waso_min": [[25, 4.16], [50, 4.16], [85, 4.16], [175, 0.0]], "wakeups": [[1, 2.95], [2, 2.07], [4, 0.0], [10, 0.0]], "cycles": [[3, 0.0], [5, 2.04], [6, 3.72], [7, 5.65]]}, "cap": [[4, 40], [6, 76], [7, 97]]} /* fitted: end */;
+
+/*
+ * Samsung shows four labels but does not publish the score cutoffs. These bands
+ * are an assumption, consistent with the one score-and-label pair the user has
+ * confirmed so far. They are a setting (sleep_bands), so another confirmed label
+ * can move them without a code change.
+ */
+export const DEFAULT_SLEEP_BANDS = [90, 70, 50];
+export const SLEEP_BANDS = DEFAULT_SLEEP_BANDS;
+
+export function sleepLabel(score, bands = DEFAULT_SLEEP_BANDS) {
+  const [ex, good, fair] = bands;
+  return score >= ex ? "Excellent" : score >= good ? "Good" : score >= fair ? "Fair" : "Attention";
+}
+
+/** stages: compact [[offsetMin, lenMin, code]]. Returns null for nights without stage detail. */
+export function sleepScore(stages, inBedMin, bands = DEFAULT_SLEEP_BANDS, model = SLEEP_MODEL) {
+  const f = sleepFacts(stages, inBedMin);
+  if (!f) return null;
+  const parts = {};
+  let total = model.intercept;
+  for (const k of Object.keys(model.curves)) { parts[k] = curve(f[k], model.curves[k]); total += parts[k]; }
+  // The cap is a hand-set prior, not fitted: recorded short nights are too few to teach it.
+  const cap = model.cap ? curve(f.hours, model.cap.concat([[24, 100]])) : 100;
+  const score = Math.round(Math.max(0, Math.min(100, cap, total)));
+  return {
+    score, label: sleepLabel(score, bands), estimate: true,
+    parts: Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, Math.round(v * 10) / 10])),
+    facts: {
+      asleep_min: Math.round(f.asleep_min), efficiency: Math.round(f.efficiency * 100), deep_pct: Math.round(f.deep_frac * 100),
+      rem_pct: Math.round(f.rem_frac * 100), waso_min: Math.round(f.waso_min), wakeups: f.wakeups, cycles: f.cycles,
+    },
+  };
+}
+
+/** Samsung's own score when the export supplied one, otherwise our estimate. */
+export function nightScore(stages, inBedMin, samsungScore, bands = DEFAULT_SLEEP_BANDS) {
+  const est = sleepScore(stages, inBedMin, bands);
+  const n = samsungScore === null || samsungScore === undefined ? NaN : Number(samsungScore);
+  if (!Number.isFinite(n)) return est;
+  const score = Math.round(n);
+  return { score, label: sleepLabel(score, bands), estimate: false, samsung: true, facts: est ? est.facts : null, ours: est ? est.score : null };
+}
+
+// ------------------------------------------------------------ signals
+
+/** A night with an awakening of 15 minutes or more between first and last sleep. */
+export const BAD_NIGHT_AWAKE_MIN = 15;
+export function badNight(stages, inBedMin) {
+  const f = sleepFacts(stages, inBedMin);
+  return f ? { bad: f.longest_awake_min >= BAD_NIGHT_AWAKE_MIN, longest_awake_min: Math.round(f.longest_awake_min) } : null;
+}
+
+/**
+ * Bedtime regularity: circular standard deviation of sleep-onset clock time, in
+ * minutes. Circular so 23:50 and 00:10 are 20 minutes apart, not 23 hours.
+ * onsetMinutes: local minutes after midnight (0..1439). Needs 3 or more nights.
+ */
+export function circularSdMinutes(onsetMinutes) {
+  const xs = onsetMinutes.filter((m) => Number.isFinite(m));
+  if (xs.length < 3) return null;
+  let c = 0, s = 0;
+  for (const m of xs) { const a = (m / 1440) * 2 * Math.PI; c += Math.cos(a); s += Math.sin(a); }
+  const r = Math.sqrt(c * c + s * s) / xs.length;
+  if (r <= 1e-9) return 720;
+  return Math.round((Math.sqrt(-2 * Math.log(r)) / (2 * Math.PI)) * 1440);
+}
+
+/** Local clock minute of sleep onset (first non-awake segment), using the night's own offset. */
+export function onsetMinute(night, tz) {
+  const st = parseStagesArr(night.stages_json ?? night.stages);
+  const first = st.find((x) => x[2] !== "a");
+  const t = night.start_ts + Math.round((first ? first[0] : 0) * 60);
+  return localPartsAt(t, night.offset_s, tz).minutes;
+}
+
+/**
+ * Zone 2 by heart-rate reserve (Karvonen), 60 to 70 percent: rest + 0.6..0.7 x (max - rest).
+ * An estimate from the user's own data, not a clinical number.
+ */
+export function zone2({ maxHr, restHr }) {
+  if (!(maxHr > 0) || !(restHr > 0) || maxHr <= restHr + 20) return null;
+  const reserve = maxHr - restHr;
+  return { lo: Math.round(restHr + 0.6 * reserve), hi: Math.round(restHr + 0.7 * reserve), max_hr: Math.round(maxHr), rest_hr: Math.round(restHr) };
+}
+
+export function percentile(values, p) {
+  const xs = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+  if (!xs.length) return null;
+  const i = (xs.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i);
+  return xs[lo] + (xs[hi] - xs[lo]) * (i - lo);
+}
+
+/** Known algorithm or firmware changes, drawn as markers on trends. Stored in state "trend_breaks"; this is the default. */
+// Empty by default: breaks are specific to a device and firmware history. Example entry:
+// { date: "YYYY-MM-DD", metric: "hrv", note: "Vendor changed its HRV algorithm" }
+// Metrics used by the dashboard: "hrv", "spo2", "sleep_awake", "rhr", "weight".
+export const DEFAULT_TREND_BREAKS = [];
+
+/** Daily values (Map date -> number) averaged per period over the days that HAVE a value; empty periods stay null. */
+export function presentMeanSeries(dailyMap, from, to, grain) {
+  return periods(from, to, grain).map((p) => {
+    let s = 0, n = 0;
+    for (let d = dayNum(p.a), end = dayNum(p.b); d <= end; d++) {
+      const v = dailyMap.get(dateOf(d));
+      if (v !== undefined && v !== null) { s += v; n++; }
+    }
+    return { ...p, n, value: n ? Math.round((s / n) * 10) / 10 : null };
+  });
 }
 
 // ------------------------------------------------------------ alerts
@@ -343,6 +554,9 @@ export function sleepScore(stages, inBedMin) {
 export const ALERT_TYPES = ["stale", "failing", "auth"];
 
 export const DEFAULT_SETTINGS = {
+  zone_max_hr: null,
+  zone_rest_hr: null,
+  sleep_bands: DEFAULT_SLEEP_BANDS,
   alert_stale: true,
   stale_days: 2,
   alert_failing: true,
@@ -365,6 +579,16 @@ export function normaliseSettings(raw) {
   const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
   if (!hhmm.test(s.quiet_start)) s.quiet_start = DEFAULT_SETTINGS.quiet_start;
   if (!hhmm.test(s.quiet_end)) s.quiet_end = DEFAULT_SETTINGS.quiet_end;
+  const optHr = (v) => {
+    if (v === null || v === undefined || v === "") return null;
+    const n = Math.round(Number(v));
+    return Number.isFinite(n) && n >= 30 && n <= 230 ? n : null;
+  };
+  s.zone_max_hr = optHr(s.zone_max_hr);
+  s.zone_rest_hr = optHr(s.zone_rest_hr);
+  const b = Array.isArray(s.sleep_bands) ? s.sleep_bands.map(Number) : [];
+  s.sleep_bands = b.length === 3 && b.every((x) => Number.isFinite(x) && x >= 0 && x <= 100) && b[0] > b[1] && b[1] > b[2]
+    ? b : DEFAULT_SLEEP_BANDS;
   return s;
 }
 

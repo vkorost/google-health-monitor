@@ -44,7 +44,7 @@ const PRIVACY = `<!doctype html><meta charset="utf-8"><meta name="viewport" cont
 <h2>What it accesses</h2>
 <p>Read-only access, through the Google Health API, to the owner's activity and fitness, health metrics and measurements, and sleep data. It never writes to Google Health.</p>
 <h2>What it stores</h2>
-<p>Summaries of that data (15-minute heart-rate ranges, sleep sessions and stages, workouts, weight and body-fat readings) in a database on the owner's own Cloudflare account. Nothing is shared with, sold to, or disclosed to anyone else, and nothing is used for advertising.</p>
+<p>Summaries of that data (15-minute heart-rate ranges, sleep sessions and stages, workouts, weight and body-fat readings, daily step totals, and nightly values the owner imports from their own Samsung Health export) in a database on the owner's own Cloudflare account. Nothing is shared with, sold to, or disclosed to anyone else, and nothing is used for advertising.</p>
 <h2>Who can see it</h2>
 <p>Only the owner. The dashboard sits behind Cloudflare Access and accepts a single Google account.</p>
 <h2>Deleting data</h2>

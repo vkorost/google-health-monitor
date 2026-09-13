@@ -3,7 +3,7 @@
 
 import * as db from "./db.js";
 import * as google from "./google.js";
-import { DAY_S, bodyRow, bucketRows, isoOf, localDate, nightRow, toEpoch, workoutRow } from "./ingest.js";
+import { DAY_S, addDays, bodyRow, bucketRows, isoOf, localDate, localMidnight, nightRow, stepsDailyRow, toEpoch, workoutRow } from "./ingest.js";
 import { evaluateConditions, message, processAlerts, restingHrRows } from "./metrics.js";
 import { buildNotifier } from "./notify.js";
 
@@ -56,18 +56,34 @@ export async function pullOnce(env, trigger = "cron") {
       { filter: `body_fat.sample_time.physical_time >= "${sinceIso}"`, pageSize: 200, maxPages: 2 }, counter);
     const body = [...weight.map((p) => bodyRow(p, "weight_g")), ...fat.map((p) => bodyRow(p, "fat_pct"))].filter(Boolean);
 
+    // Samsung's daily step total starts exactly at local midnight. A one-second window on the
+    // start time returns that record (and at most a phone minute record) instead of thousands of
+    // per-minute phone records, which would not parse inside the CPU budget. One request per day.
+    const steps = [];
+    const today = localDate(nowS, tz);
+    for (let i = 0; i < Math.min(days, 7); i++) {
+      const date = addDays(today, -i);
+      const t0 = localMidnight(date, tz);
+      const pts = await google.listPoints(token, "steps", {
+        filter: `steps.interval.start_time >= "${isoOf(t0)}" AND steps.interval.start_time < "${isoOf(t0 + 1)}"`, pageSize: 20, maxPages: 1,
+      }, counter);
+      for (const p of pts) { const r = stepsDailyRow(p, tz); if (r) steps.push(r); }
+    }
+
     await db.runStatements(database, [
       ...db.upsertSql("hr_buckets", buckets),
       ...db.upsertSql("nights", nights),
       ...db.upsertSql("workouts", workouts),
       ...db.upsertSql("body", body),
+      ...db.upsertSql("steps_daily", steps),
       db.workoutMaxHrSql(sinceS - DAY_S),
     ]);
 
     // Resting HR for every wake date the window touched, from stored buckets so
     // a night that straddles the window edge still sees all of its data.
     const recent = await db.all(database,
-      "SELECT id, wake_date, start_ts, end_ts FROM nights WHERE wake_date >= ?", localDate(sinceS - DAY_S, tz));
+      "SELECT id, wake_date, start_ts, end_ts, offset_s, deep_min, rem_min, light_min, awake_min, asleep_min FROM nights WHERE wake_date >= ?",
+      localDate(sinceS - DAY_S, tz));
     let rhr = [];
     if (recent.length) {
       const lo = Math.min(...recent.map((n) => n.start_ts));
@@ -80,7 +96,7 @@ export async function pullOnce(env, trigger = "cron") {
 
     Object.assign(counts, {
       hr_buckets: buckets.length, nights: nights.length, workouts: workouts.length,
-      body: body.length, rhr_days: rhr.length, requests: counter.n,
+      body: body.length, steps_days: steps.length, rhr_days: rhr.length, requests: counter.n,
     });
     meta.consecutive_failures = 0;
     meta.last_success = new Date().toISOString();

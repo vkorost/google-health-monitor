@@ -69,14 +69,16 @@ The free Worker plan allows 10 ms of CPU per request. Heart rate is pulled pre-s
 ## What you get
 
 - **Data status.** A row of chips shows when each source last delivered: heart rate, sleep, workouts, weight, Google access and the last pull. Hover for what each one means.
-- **Last night and today.** Time asleep, with hours and percentages for Deep, REM, Light and Awake; a sleep label (Excellent, Good, Fair, Attention); resting heart rate against its 30-day average; today's workouts.
-- **One day in detail.** A hypnogram, heart rate through the day in 15-minute min/avg/max bands with sleep and workouts shaded, and the workout list.
-- **Trends.** Sleep by stage, resting heart rate, weight and body fat (each with a 7-day rolling median and scale-change bands), and exercise minutes by type, over 1W, 1M, 3M, 1Y or All.
+- **Last night and today.** Time asleep, with hours and percentages for Deep, REM, Light and Awake; a sleep label (Excellent, Good, Fair, Attention), using Samsung's own score when you have imported it and a fitted estimate otherwise; a bad-night flag for any awakening of 15 minutes or more; lowest sleeping heart rate against its 30-day average; today's workouts and watch steps.
+- **One day in detail.** A hypnogram, heart rate through the day in 15-minute min/avg/max bands with sleep, workouts and an estimated Zone 2 band shaded, the workout list, and Samsung's nightly values (sleeping HRV, skin temperature, respiratory rate, SpO2, stress) when imported.
+- **Trends.** Sleep by stage with bad nights marked and bedtime regularity, lowest sleeping heart rate, weight and body fat (each with a 7-day rolling median and scale-change bands), exercise minutes by type, daily watch steps (gap days shown as missing, never zero) and optional Samsung-export cards, over 1W, 1M, 3M, 1Y or All. Known vendor algorithm changes can be drawn as dashed markers, so a step in a trend is not read as a change in you.
 - **Data health.** A 26-week coverage calendar, which device supplied each metric when, a sync log, a "Pull now" button and CSV export.
 - **Alerts about the pipeline, not about your body.** Pushover messages when watch data stops arriving, the pull keeps failing, or Google access is lost, plus one message when data flows again. Quiet hours hold them overnight.
+- **Samsung export import.** Health Connect does not carry everything Samsung records. `tools/samsung_import.py` loads Samsung Health's own "Download personal data" export: it fills nights, workouts, heart rate and steps that never reached Google, and adds Samsung's sleep score, sleeping HR and HRV, skin temperature, respiratory rate, SpO2 and stress. See [Samsung export](docs/04-samsung-export.md).
+- **Travel-aware times.** Nights and workouts use the UTC offset stored on each record, so a night abroad shows its local clock.
 - **The full record, locally, for AI analysis.** `tools/export_dataset.py` pulls everything the API holds (per-minute heart rate for every year, every sleep stage, every workout and reading, and minute-level activity summed per hour) into CSV files, a SQLite database and a data dictionary. Point an AI session at the data dictionary first, then the database. See [Dataset export](docs/03-dataset-export.md).
 
-Workouts are cleaned up for display without touching the stored rows. Samsung's auto-pause splits one ride into a new session at every traffic light, so same-type sessions under 10 minutes apart show as one. When a Polar chest-strap session covers the same activity, it replaces the watch's segments.
+Workouts are cleaned up for display without touching the stored rows. Samsung's auto-pause splits one ride into a new session at every traffic light, so same-type sessions up to 25 minutes apart show as one. Nights Samsung split into sessions up to 120 minutes apart are joined too, with the gap counted as awake. When a Polar chest-strap session covers the same activity, it replaces the watch's segments.
 
 ---
 
@@ -87,6 +89,7 @@ Roughly two hours, most of it in Google's and Cloudflare's consoles.
 1. **[Google setup](docs/01-google-setup.md)** covers the phone-side prerequisites, the Google Cloud project, OAuth, and a first probe that shows which of your sources actually reach the API.
 2. **[Deploy to Cloudflare](docs/02-cloudflare-deploy.md)** covers D1, Cloudflare Access with Google sign-in, secrets, the history import, and the first pull.
 3. **[Dataset export](docs/03-dataset-export.md)** covers pulling the full record to your machine for analysis, including with an AI assistant.
+4. **[Samsung export](docs/04-samsung-export.md)** covers importing Samsung Health's own export to fill the gaps.
 
 ---
 
@@ -119,9 +122,9 @@ npm test
 
 ## Limits
 
-- **It shows only what Samsung shares.** Samsung Health does not pass HRV, skin temperature, respiratory rate or resting heart rate to Health Connect; SpO2 and steps arrive only as daily summaries. Resting heart rate is calculated here from overnight heart rate; the others are simply absent.
-- **The sleep label is an estimate.** Samsung does not publish its sleep-score formula or share the score. This one uses the factors Samsung names and is tuned by hand; it will disagree on some nights.
-- **Steps are not charted yet.** Samsung's daily watch totals do arrive but with multi-week gaps, and the phone's pedometer undercounts every day the phone stays behind. The dataset export includes both.
+- **Live data is only what Samsung shares.** Samsung Health does not pass HRV, skin temperature, respiratory rate or resting heart rate to Health Connect, and SpO2 and steps arrive only as daily summaries. The rest appears only after a Samsung export import. Resting heart rate is calculated here from overnight heart rate; the others are simply absent.
+- **The sleep label is an estimate until you import.** Samsung does not publish its formula or share the score through Health Connect. The estimate is fitted against Samsung's scores from an export; the shipped constants were fitted on one person's nights, so refit on yours. The label cutoffs are an assumption and a setting.
+- **Steps are daily totals only.** Samsung sends one total per day, sometimes with multi-week gaps that Google never backfills; the Samsung export fills them. Phone pedometer counts are not charted.
 - **Tested on one device set.** Galaxy Watch 7 and Galaxy S23 (with a Polar H10 and an Arboleaf scale). Other hardware is untested.
 - **One person.** Multi-user support is a deliberate non-goal.
 

@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS nights (
   wake_date TEXT NOT NULL,
   start_ts INTEGER NOT NULL,
   end_ts INTEGER NOT NULL,
+  offset_s INTEGER,             -- UTC offset of the night as recorded (travel-aware local times)
   source TEXT,
   deep_min REAL,
   rem_min REAL,
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS workouts (
   name TEXT,
   start_ts INTEGER NOT NULL,
   end_ts INTEGER NOT NULL,
+  offset_s INTEGER,
   active_s REAL,
   avg_hr REAL,
   max_hr REAL,
@@ -51,16 +53,42 @@ CREATE TABLE IF NOT EXISTS body (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
   ts INTEGER NOT NULL,
+  offset_s INTEGER,
   value REAL NOT NULL,
   source TEXT
 );
 CREATE INDEX IF NOT EXISTS body_kind_ts ON body (kind, ts);
 
 -- Lowest 30-minute average heart rate inside the main night, keyed by wake date.
+-- Shown as "lowest sleeping heart rate": it runs below Samsung's sleeping HR and Fitbit resting HR.
 CREATE TABLE IF NOT EXISTS rhr_daily (
   date TEXT PRIMARY KEY,
   bpm REAL,
   night_id TEXT
+);
+
+-- Samsung Health's daily step total (watch plus phone as Samsung counts them), one row per local day.
+-- Days Samsung did not send stay absent: a gap is never a zero.
+CREATE TABLE IF NOT EXISTS steps_daily (
+  date TEXT PRIMARY KEY,
+  steps INTEGER,
+  source TEXT
+);
+
+-- Nightly values only Samsung's own "Download personal data" export carries, loaded by
+-- tools/samsung_import.py. Keyed by local wake date.
+CREATE TABLE IF NOT EXISTS samsung_nightly (
+  wake_date TEXT PRIMARY KEY,
+  sleep_score REAL,
+  efficiency REAL,
+  sleeping_hr REAL,
+  sleeping_hrv REAL,
+  skin_temp_delta REAL,
+  respiratory_rate REAL,
+  spo2_avg REAL,
+  spo2_low_duration REAL,
+  stress_avg REAL,
+  source_note TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sync_log (

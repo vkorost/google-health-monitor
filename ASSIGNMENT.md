@@ -92,6 +92,10 @@ body (id TEXT PRIMARY KEY, kind TEXT /* weight_g | fat_pct */, ts, value, source
 rhr_daily (date TEXT PRIMARY KEY, bpm REAL, night_id TEXT)
 sync_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ts, trigger, status, detail)
 state (key TEXT PRIMARY KEY, value TEXT)                                        -- settings, alert states, meta
+steps_daily (date TEXT PRIMARY KEY, steps INTEGER, source TEXT)                 -- Samsung daily totals
+samsung_nightly (wake_date TEXT PRIMARY KEY, sleep_score, efficiency, sleeping_hr, sleeping_hrv,
+        skin_temp_delta, respiratory_rate, spo2_avg, spo2_low_duration, stress_avg, source_note)  -- export only
+-- nights, workouts and body also carry offset_s: the record's UTC offset in seconds
 ```
 
 - **Store the source on every row from day one.** Health Connect merges every writing app, and the same phone step counter appears under two sources. Retrofitting source attribution means re-pulling everything.
@@ -104,8 +108,12 @@ state (key TEXT PRIMARY KEY, value TEXT)                                        
 ## 5. Derived values
 
 - **Main night.** The longest session ending on a local date (`wake_date`). Naps must never replace the night.
-- **Resting heart rate.** The lowest mean of two consecutive 15-minute bucket averages inside the main night. A missing bucket breaks the pair rather than bridging it, so a gap cannot manufacture a low value from two distant readings. It will not match Samsung's or Fitbit's figure; say so in the UI.
-- **Sleep score (0 to 100).** Samsung does not publish its formula or share its score, so build an estimate from the factors Samsung names, as piecewise-linear sub-scores:
+- **Lowest sleeping heart rate.** The lowest mean of two consecutive 15-minute bucket averages inside the main night. A missing bucket breaks the pair rather than bridging it, so a gap cannot manufacture a low value from two distant readings. On the development data it ran about 5 bpm below Samsung's sleeping heart rate, and further below Fitbit's resting heart rate, with a consistent offset. Label it for what it is, not "resting heart rate".
+- **Bad night.** Any interior awakening of 15 minutes or more.
+- **Bedtime regularity.** Circular standard deviation of sleep onset around midnight over the selected range.
+- **Zone 2 (estimate).** 60 to 70 percent of heart-rate reserve between the lowest sleeping heart rate and the 95th percentile of workout maxima over a year, with settings overrides. Not a clinical number.
+- **Split nights.** Samsung sometimes records one night as two or more sessions (linked by `combined_id` in its export). Join sessions ending on the same wake date up to 120 minutes apart before picking the main night, and count the gap as awake time.
+- **Sleep score (0 to 100).** Use Samsung's own score when an export has supplied it; otherwise estimate it. The shipped estimate is fitted by `tools/fit_sleep_score.py` against Samsung's export scores (intercept plus per-factor piecewise curves with shape bounds, one night in five held out); on the development data it cut mean error by about a quarter and raised label agreement from roughly 56 to 78 percent. The hand-set first version, kept for reference, used piecewise-linear sub-scores:
   - **Factors and weights:**
 
     | Factor | Weight | Full marks |
@@ -118,15 +126,19 @@ state (key TEXT PRIMARY KEY, value TEXT)                                        
     | Sleep cycles | 10 | 4+, counted as REM episodes at least 20 minutes apart |
 
   - **Short sleep cap:** the score cannot exceed `40 + 0.6 × duration sub-score`. A well-structured four-hour night must not score well.
-  - **Bands:** Excellent 88+, Good 75+, Fair 55+, Attention below.
+  - **Bands:** Samsung publishes none and its export carries no label. The shipped setting is Excellent 90+, Good 70+, Fair 50+, Attention below: an assumption to adjust as confirmed labels arrive.
   - **Calibration:** against nights the user's Samsung app has already labeled. Re-tune with a Samsung "Download personal data" export when available.
   - **Nights with no stage list** get no score. Old Fitbit "classic" nights record only asleep and restless, so they score low on deep and REM; flag or skip them.
 - **Workouts.** Apply both rules at read time; stored rows stay untouched:
   1. **Duplicates:** drop a workout that overlaps a better source's workout of the same category by at least half of the shorter one. Rank: Polar Flow above Samsung Health above everything else.
-  2. **Merge:** join consecutive same-category workouts no more than 10 minutes apart. Samsung auto-pause splits one ride into a new session at every traffic light. Sum the moving time, weight average heart rate by moving time, and take the max of the maxima.
+  2. **Merge:** join consecutive same-category workouts no more than 25 minutes apart. Samsung auto-pause splits one ride into a new session at every traffic light. Sum the moving time, weight average heart rate by moving time, and take the max of the maxima.
 - **Categories.** Anything containing SWIM is Swimming; BIK, CYCL or SPINNING is Biking; everything else is Other (walking dominates it).
 - **Body readings.**
   - Drop a reading with the same kind and value as the previous one within 120 seconds. Observed: one weigh-in stored twice, 38 seconds apart.
+  - A `FITBIT_WEB_API` reading that mirrors another scale's reading (same value within 120 s) is a copy: drop it.
+  - Weight entries from Polar Flow and Samsung Health are profile values typed into the app, not scale readings: keep them out of the scale series.
+  - Collapse same-source re-weighs within 30 minutes to the last one.
+  - Keep a data-driven list of excluded dates for readings known to be wrong.
   - Chart a 7-day rolling median over readings, with raw points underneath.
   - Mark source changes as bands: body fat from different scales is not comparable, and a jump at a boundary is the scale.
 
@@ -197,7 +209,20 @@ Single page, mobile first, everything inlined. Order:
   - **Polar Flow:** sessions appear only after Polar Flow syncs.
   - **Consequence:** the overlapping re-read window and the staleness alert are both mandatory.
 - **Scale app timestamps can be wrong.** Arboleaf readings appeared several times a day on dates with no weigh-in at all. Keep them with their source and say so in the UI; do not trust them at day resolution.
+- **Health Connect is incomplete compared with Samsung's own export.** Where both have data they agree minute for minute (heart rate r above 0.99, every sleep session matched), but Google can miss whole months of watch data, most of the bike history and weeks of step totals, and never carries Samsung's sleep score, sleeping HRV, skin temperature, respiratory rate, stress or per-minute SpO2. Treat the export as the authoritative backfill source.
+- **Within-minute heart-rate spread is gone for Samsung data.** In Google's 1-minute rollUp nearly every Samsung-era minute holds one sample (min equals max). Real spread exists only in Fitbit-era data, chest-strap sessions and the Samsung export.
+- **Local time needs the record's offset.** Sleep intervals carry `startUtcOffset` and `endUtcOffset`; use them for `wake_date` and displayed clocks, or nights abroad land on the wrong date. Rolled-up heart rate has no offset and stays on the home zone.
 - **Resolution.** 1-minute rollUp across all history is about four million rows for eight years of data. Fine for an offline export, far too much for the Worker.
+
+### Samsung Health export
+
+- **How to get it.** Samsung Health, Settings, Download personal data. It produces a folder of CSV files plus a `jsons/` tree.
+- **CSV layout.** Row 1 is metadata (`com.samsung.shealth.sleep,<version>,<n>`), row 2 the header. Skip row 1.
+- **Times.** Wall-clock UTC strings plus a per-row `time_offset` such as `UTC-0500`.
+- **Binned data.** Rows with fine-grained series point to JSON files at `jsons/<type>/<first character of the uuid>/<uuid>.<field>.json`.
+- **Codes.** Sleep stages: 40001 awake, 40002 light, 40003 deep, 40004 REM. Exercise types: 1001 walking, 1002 running, 11007 biking, 14001 swimming.
+- **Split nights.** Sessions of one night share a `combined_id`; the combined night has its own row and score.
+- **Import without double counting.** Skip export nights and workouts that overlap a Health Connect record by half of the shorter one, never overwrite Google's heart-rate buckets or step days, and tag imported rows with their own source.
 
 ### Google OAuth
 
@@ -207,6 +232,8 @@ Single page, mobile first, everything inlined. Order:
 - **Scopes:** `googlehealth.activity_and_fitness.readonly`, `googlehealth.health_metrics_and_measurements.readonly`, `googlehealth.sleep.readonly`.
 
 ### Cloudflare
+
+- **D1 has no `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.** Schema changes go through `wrangler d1 migrations apply`, which tracks what ran. Export a backup first, and deploy code that writes new columns only after the migration.
 
 - **Verify the Access JWT in the Worker.** Header `cf-access-jwt-assertion`, RS256 against `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`. Check `aud`, `exp` and the allowed email. Do not trust a header Access merely forwards.
 - **Close the side doors:** set `workers_dev: false` and `preview_urls: false`. Otherwise a workers.dev URL bypasses Access.
