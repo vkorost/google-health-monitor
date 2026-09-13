@@ -381,6 +381,11 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
     <details class="panel" id="p-health">
       <summary><h2>Data health</h2><span class="sub" id="health-sub"></span></summary>
       <div class="panel-body">
+        <div class="row-actions">
+          <button type="button" class="btn" id="pull">Pull now</button>
+          <button type="button" class="btn" id="csv">Export CSV for this range</button>
+          <span class="result" id="pull-result"></span>
+        </div>
         <div>
           <h3>Heart rate coverage, last 26 weeks</h3>
           <div class="scroll"><div class="cal" id="cal"></div></div>
@@ -390,24 +395,17 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
             <span><i class="sw" style="background:var(--warn)"></i>No heart-rate data</span>
           </div>
         </div>
-        <div>
-          <h3>Where each metric came from</h3>
-          <div class="chart" id="c-eras"></div>
-          <p class="note" id="samsung-import-note" style="margin-top:8px"></p>
-        </div>
-        <div>
-          <h3>Sync log</h3>
-          <div class="scroll">
-            <table class="log">
-              <thead><tr><th>When</th><th>Result</th><th>What happened</th></tr></thead>
-              <tbody id="log"></tbody>
-            </table>
-          </div>
-        </div>
-        <div class="row-actions">
-          <button type="button" class="btn" id="pull">Pull now</button>
-          <button type="button" class="btn" id="csv">Export CSV for this range</button>
-          <span class="result" id="pull-result"></span>
+      </div>
+    </details>
+
+    <details class="panel" id="p-log">
+      <summary><h2>Sync log</h2><span class="sub" id="log-sub">Every pull, newest first</span></summary>
+      <div class="panel-body">
+        <div class="scroll">
+          <table class="log">
+            <thead><tr><th>When</th><th>Result</th><th>What happened</th></tr></thead>
+            <tbody id="log"></tbody>
+          </table>
         </div>
       </div>
     </details>
@@ -464,6 +462,14 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
           <button type="button" class="btn" id="test">Send test notification</button>
           <span class="result" id="test-result"></span>
         </div>
+      </div>
+    </details>
+
+    <details class="panel" id="p-sources">
+      <summary><h2>Data sources</h2><span class="sub">Which device or app supplied each metric, by year</span></summary>
+      <div class="panel-body">
+        <div class="chart" id="c-eras"></div>
+        <p class="note" id="samsung-import-note" style="margin-top:8px"></p>
       </div>
     </details>
   </section>
@@ -977,6 +983,9 @@ function renderTop(){
      d: st.last_hr_end ? "The newest 15-minute heart-rate bucket ends at " + longWhen(st.last_hr_end) + "." : "No heart-rate data has been stored yet.", s: staleNote},
     {i: !st.last_wake_date ? "none" : stale ? "warn" : "good", k: "Sleep", v: !st.last_wake_date ? "None" : st.last_wake_date === S.today ? "Last night" : fmtShort(dn(st.last_wake_date)), t: "Sleep",
      d: st.last_wake_date ? "The newest night in the record ended " + longWhen(st.last_night_end) + "." : "No sleep has been stored yet.", s: staleNote},
+    {i: S.night && S.night.wake_date === S.today ? "good" : "none", k: "Last night", v: S.night && S.night.wake_date === S.today ? "Synced" : "Not yet", t: "Last night's sleep",
+     d: S.night && S.night.wake_date === S.today ? "Sleep for the night into " + fmtDayNav(TODAY) + " has arrived." : "No sleep has arrived yet for the night into " + fmtDayNav(TODAY) + (st.last_wake_date ? "; the newest night is into " + fmtDayNav(dn(st.last_wake_date)) + "." : "."),
+     s: "Green when last night is in; an empty circle until Samsung Health and Google Health sync it. Never alerts on its own."},
     {i: !st.last_workout_start ? "none" : ago(st.last_workout_start) <= 14 ? "good" : "info", k: "Workouts", v: st.last_workout_start ? when(st.last_workout_start) : "None", t: "Workouts",
      d: st.last_workout_start ? "The latest workout started " + longWhen(st.last_workout_start) + "." : "No workouts stored yet.", s: "Shown for information only; days without workouts are normal."},
     {i: st.last_weigh_in ? "info" : "none", k: "Weight", v: st.last_weigh_in ? (ago(st.last_weigh_in) <= 0 ? "Today" : ago(st.last_weigh_in) + "d ago") : "None", t: "Weight",
@@ -1101,7 +1110,7 @@ async function loadAll(){
   banner(null);
   try { await loadSummary(); } catch (err) { banner("Could not load the dashboard: " + err.message); return; }
   if (!DAYSEL) DAYSEL = TODAY_STR;
-  await Promise.all([renderDay(), loadTrends(), document.getElementById("p-health").open ? loadHealth() : null]);
+  await Promise.all([renderDay(), loadTrends(), ["p-health", "p-log", "p-sources"].some(id => document.getElementById(id).open) ? loadHealth() : null]);
 }
 
 document.getElementById("range").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; RANGE = b.dataset.r;
@@ -1111,7 +1120,7 @@ document.addEventListener("click", e => { const sl = e.target.closest(".slabel")
 document.addEventListener("click", e => { if (!e.target.closest("#status")) document.querySelectorAll("#status .chip.open").forEach(x => x.classList.remove("open")); });
 document.getElementById("day-prev").addEventListener("click", () => { DAYSEL = shiftDate(DAYSEL, -1); renderDay(); });
 document.getElementById("day-next").addEventListener("click", () => { if (DAYSEL < TODAY_STR) { DAYSEL = shiftDate(DAYSEL, 1); renderDay(); } });
-document.getElementById("p-health").addEventListener("toggle", e => { if (e.target.open) loadHealth(); });
+["p-health", "p-log", "p-sources"].forEach(id => document.getElementById(id).addEventListener("toggle", e => { if (e.target.open) { if (HEALTH) safe("data health", renderHealth); else loadHealth(); } }));
 document.getElementById("csv").addEventListener("click", () => { window.location.href = "/api/export.csv?range=" + RANGE; });
 document.getElementById("pull").addEventListener("click", async e => {
   const btn = e.currentTarget, out = document.getElementById("pull-result"); btn.disabled = true; out.textContent = "Pulling from Google Health...";
@@ -1137,7 +1146,7 @@ document.getElementById("p-alerts").addEventListener("change", e => {
     catch (err) { out.textContent = "Not saved: " + err.message; }
   }, 300);
 });
-let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { renderTrends(); drawDay(); if (document.getElementById("p-health").open) safe("data health", renderHealth); }, 150); });
+let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { renderTrends(); drawDay(); if (["p-health", "p-log", "p-sources"].some(id => document.getElementById(id).open) && HEALTH) safe("data health", renderHealth); }, 150); });
 loadAll();
 })();
 </script>
