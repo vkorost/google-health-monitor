@@ -23,7 +23,9 @@ It runs on Cloudflare's free tier and costs nothing to operate.
 
 **This is not for you if** you want realtime data, multiple users, or anything that writes back into Google Health. None of those are goals.
 
-Screenshots are not included: every screen shows a real person's health record.
+![The dashboard: data status, last night with its sleep label, the night's sleep stages, heart rate through the day, workouts and trends](screenshots/google-health-monitor.jpg)
+
+The screenshot shows the author's own data, shared on purpose.
 
 ---
 
