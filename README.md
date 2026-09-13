@@ -119,9 +119,9 @@ npm test
 
 ## Limits
 
-- **It shows only what Samsung shares.** Samsung Health does not pass HRV, skin temperature, respiratory rate, resting heart rate, SpO2 or minute-level watch steps to Health Connect. Resting heart rate is calculated here from overnight heart rate; the others are simply absent.
+- **It shows only what Samsung shares.** Samsung Health does not pass HRV, skin temperature, respiratory rate or resting heart rate to Health Connect; SpO2 and steps arrive only as daily summaries. Resting heart rate is calculated here from overnight heart rate; the others are simply absent.
 - **The sleep label is an estimate.** Samsung does not publish its sleep-score formula or share the score. This one uses the factors Samsung names and is tuned by hand; it will disagree on some nights.
-- **Steps are not charted.** Only the phone's pedometer reliably reaches Google, and it undercounts every day the phone stays behind.
+- **Steps are not charted yet.** Samsung's daily watch totals do arrive but with multi-week gaps, and the phone's pedometer undercounts every day the phone stays behind. The dataset export includes both.
 - **Tested on one device set.** Galaxy Watch 7 and Galaxy S23 (with a Polar H10 and an Arboleaf scale). Other hardware is untested.
 - **One person.** Multi-user support is a deliberate non-goal.
 

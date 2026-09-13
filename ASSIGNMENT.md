@@ -191,7 +191,7 @@ Single page, mobile first, everything inlined. Order:
 - **Timestamps carry up to 6 or more fractional digits.** Parse defensively.
 - **Sources.** Records synced from the phone have `dataSource.platform = HEALTH_CONNECT` and `application.packageName` naming the writer.
   - **Same pedometer twice:** `MobileTrack` (Google Health's phone counter) and `android` (the system counter) are the same steps with near-identical counts.
-- **Samsung shares less than it records.** Samsung Health does not pass HRV, skin temperature, respiratory rate, resting heart rate, SpO2 or per-minute watch steps. Google's own help page lists this; the API confirms it. Plan the UI around their absence.
+- **Samsung shares less than it records.** Samsung Health does not pass HRV, skin temperature, respiratory rate or resting heart rate. SpO2 arrives only as `daily-oxygen-saturation` summaries and steps only as one daily total, with multi-week gaps. Google's help page understates this: it lists SpO2 as shared and steps as not, so check the API, not the help page. Plan the UI around their absence.
 - **Data arrives only after the source app syncs.**
   - **Samsung:** an update left Samsung Health waiting to be opened, and nothing arrived for ten days. Everything backfilled once it ran.
   - **Polar Flow:** sessions appear only after Polar Flow syncs.

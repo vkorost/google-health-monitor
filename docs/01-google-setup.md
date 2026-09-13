@@ -94,7 +94,7 @@ For each type it prints the point count, the time span, and the source fields. R
 
 - **`dataSource.platform=HEALTH_CONNECT`** with `application.packageName=com.sec.android.app.shealth` (or your other apps): phone data reaches the cloud. Good.
 - **Only `platform=FITBIT` and `MobileTrack`:** only Google's own phone step counter is arriving. Recheck Step 0.
-- **Empty types:** some are normal. Samsung does not share HRV, skin temperature, respiratory rate, resting heart rate or SpO2.
+- **Empty types:** some are normal. Samsung does not share HRV, skin temperature, respiratory rate or resting heart rate, and sends SpO2 and steps only as daily summaries (look in the `daily-oxygen-saturation` type and in `steps`).
 - **Newest record days old:** a source app has not synced. Open it, sync Google Health, probe again. Missed days usually backfill.
 
 ## Step 7: Publish the app (within 7 days)

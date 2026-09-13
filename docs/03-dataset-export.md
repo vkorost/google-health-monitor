@@ -25,7 +25,10 @@ A thorough analysis starts with the data dictionary below. Copy this file into `
 
 ## Conventions
 
-- **Times.** Every `*_utc` column is ISO 8601 UTC. Every `*_local` column is wall-clock local time: it uses the UTC offset stored on the record where the API supplies one (so travel is respected), and `HEALTH_TZ` otherwise.
+- **Times.** Every `*_utc` column is ISO 8601 UTC. `*_local` and `local_date` columns are wall-clock local time, computed two ways:
+  - **Record offset** (respects travel): `workouts`, `body`, `measurements`, `activity_hourly`.
+  - **Fixed `HEALTH_TZ`**: `sleep_sessions`, `sleep_stages`, `heart_rate_1min`. The rollUp heart-rate data carries no offset, and sleep uses the same zone as the dashboard.
+  - Outside travel the two agree; while traveling, sleep and heart rate stay on home time.
 - **Dates.** `local_date` is the local calendar date of the start. `wake_date` on sleep is the local date the session ended.
 - **Sources.** `source` is the app package that wrote the record, or the device name when there is none. `sources.csv` lists every source per type with first and last dates.
 
@@ -137,13 +140,15 @@ Every source per type: platform, device, first and last dates, record count.
 ## Known data problems
 
 - **Samsung does not share everything with Health Connect.**
-  - **Missing:** HRV, skin temperature, respiratory rate, resting heart rate, SpO2 and per-minute watch steps. Values for those here come from Fitbit-era history or other apps.
+  - **Missing:** HRV, skin temperature, respiratory rate, resting heart rate, and per-reading SpO2. Values for those come from Fitbit-era history (to 2023) or Polar.
+  - **Shared as daily summaries only:** SpO2 (`daily-oxygen-saturation`: average, lower bound, upper bound, standard deviation) and steps (one daily total per day). Minute-level values of either are not shared.
   - **Samsung-only metrics:** stress, HRV and body composition exist only in Samsung Health's own "Download personal data" export.
 - **Sleep stages from different devices are not comparable.** Treat a device change as a break in any stage trend.
 - **Steps are unreliable.**
   - **Same counter twice:** the phone's counter appears as both `MobileTrack` and `android` with near-identical counts. Never sum them.
   - **Phone counts miss days:** they undercount every day the phone stays behind.
-  - **Watch steps rarely arrive:** watch steps may be largely absent.
+  - **Watch steps are daily totals with gaps:** Samsung Health writes one daily total per day, which can be missing for weeks without being backfilled. The hourly cell holding it is the hour the total was written. Use it at day resolution only.
+- **Within-minute heart-rate spread is Fitbit-only.** In the Samsung era about 97% of minutes have one sample (`bpm_min = bpm_max`), so `bpm_min`/`bpm_max` spread is meaningful only for Fitbit years and Polar sessions.
 - **Scale app timestamps can be wrong.** Arboleaf readings have appeared several times a day on dates with no weigh-in. Check against the scale app before trusting dates at day resolution.
 - **Body fat is not comparable across scales.** Different electrodes, frequencies and equations. Analyze each source separately.
 - **Workouts are split and duplicated.** Samsung auto-pause creates several sessions per ride, and chest-strap sessions duplicate watch sessions. Use `workouts_combined` for counts and totals.
