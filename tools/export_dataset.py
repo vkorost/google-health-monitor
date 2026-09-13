@@ -427,16 +427,29 @@ def build_db():
                 continue
             n += 1
             wid = str(dp.get("name", "")).split("/")[-1]
+            if dtype in HIGH_VOLUME:
+                if not loc:
+                    continue
+                # Categorical per-minute types (activity level, heart-rate zone) carry a label, not a number:
+                # tabulate them as minutes per label. Types with no fields at all (sedentary-period) count minutes.
+                minutes = (parse_iso(end) - parse_iso(start)).total_seconds() / 60 if start and end else 0
+                labelled = False
+                for field, v in leaves(obj):
+                    num = as_number(v)
+                    label = field if num is not None else f"{field}={v} (minutes)"  # not `key`: that names the record type
+                    cell = hourly[(loc[:13] + ":00", meta["source"], label)]
+                    cell[0] += num if num is not None else minutes
+                    cell[1] += 1
+                    labelled = True
+                if not labelled:
+                    cell = hourly[(loc[:13] + ":00", meta["source"], "minutes")]
+                    cell[0] += minutes
+                    cell[1] += 1
+                continue
             for field, v in leaves(obj):
                 num = as_number(v)
-                if dtype in HIGH_VOLUME:
-                    if num is not None and loc:
-                        cell = hourly[(loc[:13] + ":00", meta["source"], field)]
-                        cell[0] += num
-                        cell[1] += 1
-                else:
-                    mrows.append((dtype, wid, start, end, loc, ldate, meta["source"], meta["platform"], meta["device_name"], field,
-                                  num, None if num is not None else (None if v is None else str(v))))
+                mrows.append((dtype, wid, start, end, loc, ldate, meta["source"], meta["platform"], meta["device_name"], field,
+                              num, None if num is not None else (None if v is None else str(v))))
             if len(mrows) > 200000:
                 con.executemany("INSERT INTO measurements VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", mrows)
                 mrows = []

@@ -115,6 +115,13 @@ Per-minute activity types summed per local hour, per source and field:
 
 `records` is how many raw records went into the cell. Originals are in `raw/`.
 
+**Field naming:**
+- **Numeric fields** keep their name and are summed: `count` for steps, `strokeCount`, and so on.
+- **Label fields** become minutes per label, named `<field>=<label> (minutes)`, for example `activityLevelType=SEDENTARY (minutes)`. This covers `activity-level`, `time-in-heart-rate-zone` and the zone labels in `active-minutes`.
+- **Records with no fields at all** (`sedentary-period`) count as `minutes`.
+
+Check the distinct `field` values per `type` before analyzing.
+
 ### `sources`
 Every source per type: platform, device, first and last dates, record count.
 

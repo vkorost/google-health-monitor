@@ -1,8 +1,13 @@
 # Google Health Monitor
 
-**Your watch, your chest strap and your scale each keep their own app. This puts the long-term record in one place you control.**
+**Your watch, your chest strap and your scale each keep their own app. This puts the long-term record in one place you control, and hands all of it to you for analysis.**
 
-It is a personal dashboard for health data that reaches Google Health: a Samsung Galaxy Watch through Samsung Health, Polar sessions through Polar Flow, smart-scale readings through their vendor apps, and any older Fitbit history on the same Google account. A Cloudflare Worker pulls it twice a day, stores summaries in D1, and serves a dashboard behind Google sign-in. It charts how nights are structured, how resting heart rate moves over months, and where weight is trending. It is built for progression, not telemetry.
+It has two goals, and they matter equally:
+
+1. **Monitoring.** A live dashboard, on desktop or phone, for health data that reaches Google Health: a Samsung Galaxy Watch through Samsung Health, Polar sessions through Polar Flow, smart-scale readings through their vendor apps, and any older Fitbit history on the same Google account. A Cloudflare Worker pulls it twice a day, stores summaries in D1, and serves the dashboard behind Google sign-in. It charts how nights are structured, how resting heart rate moves over months, and where weight is trending. It is built for progression, not telemetry.
+2. **Owning the data for analysis.** One command pulls the entire record to your own machine: per-minute heart rate for every year the account holds, every sleep stage, every workout, every weigh-in and every other metric Google returns. It lands as CSV files, a SQLite database and a data dictionary that spells out every column and every known data problem. That is the form an AI assistant (Claude Code, for example) needs to answer open-ended questions about years of your own data, which no vendor app lets you ask.
+
+**Tested on one setup only:** a Samsung Galaxy Watch 7 paired with a Samsung Galaxy S23, plus a Polar H10 recorded through Polar Beat and an Arboleaf scale. No other watches, phones or scales have been tested. Anything that writes to Health Connect should work in principle, but that is untested.
 
 It runs on Cloudflare's free tier and costs nothing to operate.
 
@@ -69,7 +74,7 @@ The free Worker plan allows 10 ms of CPU per request. Heart rate is pulled pre-s
 - **Trends.** Sleep by stage, resting heart rate, weight and body fat (each with a 7-day rolling median and scale-change bands), and exercise minutes by type, over 1W, 1M, 3M, 1Y or All.
 - **Data health.** A 26-week coverage calendar, which device supplied each metric when, a sync log, a "Pull now" button and CSV export.
 - **Alerts about the pipeline, not about your body.** Pushover messages when watch data stops arriving, the pull keeps failing, or Google access is lost, plus one message when data flows again. Quiet hours hold them overnight.
-- **A dataset exporter.** `tools/export_dataset.py` pulls the whole record (per-minute heart rate for every year the account holds, every sleep stage, every workout and reading) into CSV files, a SQLite database and a data dictionary, ready for analysis elsewhere.
+- **The full record, locally, for AI analysis.** `tools/export_dataset.py` pulls everything the API holds (per-minute heart rate for every year, every sleep stage, every workout and reading, and minute-level activity summed per hour) into CSV files, a SQLite database and a data dictionary. Point an AI session at the data dictionary first, then the database. See [Dataset export](docs/03-dataset-export.md).
 
 Workouts are cleaned up for display without touching the stored rows. Samsung's auto-pause splits one ride into a new session at every traffic light, so same-type sessions under 10 minutes apart show as one. When a Polar chest-strap session covers the same activity, it replaces the watch's segments.
 
@@ -81,7 +86,7 @@ Roughly two hours, most of it in Google's and Cloudflare's consoles.
 
 1. **[Google setup](docs/01-google-setup.md)** covers the phone-side prerequisites, the Google Cloud project, OAuth, and a first probe that shows which of your sources actually reach the API.
 2. **[Deploy to Cloudflare](docs/02-cloudflare-deploy.md)** covers D1, Cloudflare Access with Google sign-in, secrets, the history import, and the first pull.
-3. **[Dataset export](docs/03-dataset-export.md)** covers pulling the full record for offline analysis.
+3. **[Dataset export](docs/03-dataset-export.md)** covers pulling the full record to your machine for analysis, including with an AI assistant.
 
 ---
 
@@ -117,6 +122,7 @@ npm test
 - **It shows only what Samsung shares.** Samsung Health does not pass HRV, skin temperature, respiratory rate, resting heart rate, SpO2 or minute-level watch steps to Health Connect. Resting heart rate is calculated here from overnight heart rate; the others are simply absent.
 - **The sleep label is an estimate.** Samsung does not publish its sleep-score formula or share the score. This one uses the factors Samsung names and is tuned by hand; it will disagree on some nights.
 - **Steps are not charted.** Only the phone's pedometer reliably reaches Google, and it undercounts every day the phone stays behind.
+- **Tested on one device set.** Galaxy Watch 7 and Galaxy S23 (with a Polar H10 and an Arboleaf scale). Other hardware is untested.
 - **One person.** Multi-user support is a deliberate non-goal.
 
 ---
