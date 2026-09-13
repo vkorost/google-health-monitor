@@ -106,6 +106,19 @@ header.top h1{font-size:clamp(26px,4vw,34px);font-weight:600;letter-spacing:-.01
 .sec-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:10px 20px;margin-bottom:12px}
 .sec-head h2{font-size:20px;font-weight:600}
 .sec-head p{margin:0;color:var(--ink-2);font-size:13.5px}
+/* Collapsible day sections: open when they hold fresh data, folded to one line when they do not */
+[hidden]{display:none!important}
+details.fold > summary{list-style:none;cursor:pointer;display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px;margin-bottom:12px;min-height:36px}
+details.fold > summary::-webkit-details-marker{display:none}
+details.fold > summary h2{font-size:20px;font-weight:600}
+details.fold > summary .fold-note{color:var(--ink-2);font-size:13.5px}
+details.fold > summary::after{content:"";width:8px;height:8px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg);margin-left:auto;align-self:center;flex:none;transition:transform .15s}
+details.fold[open] > summary::after{transform:rotate(-135deg);margin-top:4px}
+details.fold:not([open]) > summary{margin-bottom:0;padding-bottom:4px;border-bottom:1px solid var(--rule)}
+.fold-row{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px 16px;margin-bottom:12px}
+.stale-note{display:flex;gap:10px;align-items:flex-start;background:var(--panel);border:1px solid var(--rule);border-left:3px solid var(--info);border-radius:8px;padding:10px 14px;font-size:13.5px;color:var(--ink);margin-bottom:12px}
+.stale-note .ico{margin-top:4px}
+.stale-tag{display:inline-block;margin-left:8px;padding:0 7px;border:1px solid var(--info);border-radius:999px;color:var(--info-ink);font-size:11.5px;font-weight:600;letter-spacing:.02em;vertical-align:middle}
 
 /* last night summary */
 .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:12px;overflow:hidden}
@@ -255,18 +268,17 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
     <div class="status" id="status"></div>
   </section>
 
-  <section aria-labelledby="ln-h">
-    <div class="sec-head">
-      <h2 id="ln-h">Last night and today</h2>
-      <p id="ln-sub"></p>
-    </div>
+  <details class="fold" id="fold-ln" open>
+    <summary><h2 id="ln-h">Last night and today</h2><span class="fold-note" id="ln-sub"></span></summary>
+    <div class="stale-note" id="ln-stale" hidden></div>
     <div class="summary" id="summary"><div class="loading">Loading</div></div>
-  </section>
+  </details>
 
-  <section aria-labelledby="day-h">
-    <div class="sec-head">
-      <h2 id="day-h">One day in detail</h2>
-      <div class="daynav">
+  <details class="fold" id="fold-day" open>
+    <summary><h2 id="day-h">One day in detail</h2><span class="fold-note" id="day-note"></span></summary>
+    <div class="fold-row">
+      <div class="stale-note" id="day-stale" hidden style="margin-bottom:0;flex:1 1 320px"></div>
+      <div class="daynav" style="margin-left:auto">
         <button type="button" id="day-prev" aria-label="Previous day">&#8249;</button>
         <span class="d" id="day-label"></span>
         <button type="button" id="day-next" aria-label="Next day">&#8250;</button>
@@ -294,7 +306,7 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
         <div class="sessions" id="sessions"></div>
       </div>
     </div>
-  </section>
+  </details>
 
   <section aria-labelledby="tr-h">
     <div class="sec-head">
@@ -909,6 +921,15 @@ async function renderDay(){
     DAY_DATA = dayCache.get(DAYSEL);
   } catch (err) { banner("Could not load " + DAYSEL + ": " + err.message); return; }
   document.getElementById("day-prev").disabled = !DAY_DATA.first_night || DAYSEL <= DAY_DATA.first_night;
+  const hasData = Boolean(DAY_DATA.night || (DAY_DATA.buckets && DAY_DATA.buckets.length) || (DAY_DATA.workouts && DAY_DATA.workouts.length));
+  const dn_ = document.getElementById("day-note"), ds = document.getElementById("day-stale");
+  if (hasData) { dn_.textContent = fmtDayNav(dn(DAYSEL)); ds.hidden = true; }
+  else {
+    dn_.textContent = (DAYSEL === TODAY_STR ? "Today" : fmtDayNav(dn(DAYSEL))) + " · no data synced yet";
+    ds.innerHTML = '<i class="ico info" aria-hidden="true"></i><span><b>Nothing has arrived for ' + (DAYSEL === TODAY_STR ? "today" : fmtDayNav(dn(DAYSEL))) + ' yet.</b> Use the arrow to look at an earlier day.</span>';
+    ds.hidden = false;
+  }
+  if (DAYSEL === TODAY_STR) setFold("fold-day", hasData);
   drawDay();
 }
 function drawDay(){ if (!DAY_DATA) return; safe("sleep stages", renderHypnogram); safe("heart rate", renderDayHR); safe("workouts", renderSessions); }
@@ -931,6 +952,11 @@ function sleepLabelHtml(sc){
     '<span class="g">' + rows.map(r => "<span>" + r[0] + "</span><span>" + r[1] + "</span><span>" + r[2] + "</span>").join("") + "</span>" +
     '<span class="s">Estimate: points per factor from a model fitted to Samsung\'s own scores. Import a Samsung export to see Samsung\'s score instead. ' + bandText + "</span></span></span>";
 }
+const foldTouched = new Set();
+// Open or fold a section to match its data, unless the viewer has toggled it this visit.
+function setFold(id, open){ const d = document.getElementById(id); if (!d || foldTouched.has(id)) return; d.open = open; }
+["fold-ln", "fold-day"].forEach(id => { const d = document.getElementById(id);
+  d.querySelector("summary").addEventListener("click", () => foldTouched.add(id)); });
 let SUMMARY = null;
 function renderTop(){
   const S = SUMMARY, st = S.status || {}, al = S.alerts || {}, meta = S.meta || {}, set = S.settings;
@@ -972,14 +998,14 @@ function renderTop(){
     const tot = (n.end_ts - n.start_ts) / 60; const sp = lpo(n.start_ts, n.offset_s), ep = lpo(n.end_ts, n.offset_s);
     const val = k => n[k + "_min"] || 0;
     const pct = k => Math.round(val(k) / tot * 100);
-    document.getElementById("ln-sub").textContent = "Night into " + fmtDayNav(dn(n.wake_date));
-    nightHtml = '<div><span class="labelrow"><span class="label">Asleep</span>' + sleepLabelHtml(n.score) + '</span><span class="big">' + Math.floor(n.asleep_min / 60) + "<small>h</small> " + String(Math.round(n.asleep_min % 60)).padStart(2, "0") + "<small>m</small></span>" +
+    document.getElementById("ln-sub").textContent = n.wake_date === S.today ? "Night into " + fmtDayNav(dn(n.wake_date)) : "Last night not synced yet · latest is the night into " + fmtDayNav(dn(n.wake_date));
+    nightHtml = '<div><span class="labelrow"><span class="label">Asleep' + (n.wake_date !== S.today ? '<span class="stale-tag">' + fmtShort(dn(n.wake_date)) + "</span>" : "") + "</span>" + sleepLabelHtml(n.score) + '</span><span class="big">' + Math.floor(n.asleep_min / 60) + "<small>h</small> " + String(Math.round(n.asleep_min % 60)).padStart(2, "0") + "<small>m</small></span>" +
       '<span class="sub tn">' + clock(sp.minutes) + " to " + clock(ep.minutes) + ", in bed " + hm(tot) + (n.local && n.local.away ? " (local time, " + utcLabel(n.offset_s) + ")" : "") + badFlagHtml(n.bad) + "</span>" +
       (n.stages.length ? '<div class="stagebar" aria-hidden="true">' + STAGES.map(([k]) => '<span style="width:' + (val(k) / tot * 100) + "%;background:var(--st-" + k + ')"></span>').join("") + "</div>" +
       '<div class="stagetable">' + STAGES.map(([k, name]) => '<i class="sw st" style="background:var(--st-' + k + ')"></i><span class="n">' + name + '</span><span class="h">' + hm(val(k)) + '</span><span class="p">' + pct(k) + "%</span>").join("") + "</div>"
       : '<span class="sub">No stage detail for this night.</span>') + "</div>";
   } else {
-    document.getElementById("ln-sub").textContent = "";
+    document.getElementById("ln-sub").textContent = "No sleep stored yet";
     nightHtml = '<div><span class="label">Asleep</span><span class="sub">No sleep stored yet.</span></div>';
   }
   const r = S.rhr, a30 = S.rhr30;
@@ -992,6 +1018,17 @@ function renderTop(){
       '<span class="meta">' + clock(s0.minutes) + " to " + clock(s1.minutes) + (x.avg_hr ? " · avg " + Math.round(x.avg_hr) + " bpm" : "") + (x.max_hr ? " · max " + Math.round(x.max_hr) + " bpm" : "") + (x.parts > 1 ? " · " + x.parts + " segments, " + hm((x.end_ts - x.start_ts) / 60) + " elapsed" : "") + zoneTag(x, S.zone2) + "</span></div>"; }).join("")
     : '<span class="sub">No workouts yet today.</span>') + '</div><span class="sub" style="margin-top:6px">' + (S.steps_today != null ? 'Steps today <span class="num">' + S.steps_today.toLocaleString() + "</span>" : "Steps today: not synced yet") + (S.steps_yesterday != null ? ' &middot; yesterday <span class="num">' + S.steps_yesterday.toLocaleString() + "</span>" : "") + "</span></div>";
   document.getElementById("summary").innerHTML = nightHtml + rhrHtml + woHtml;
+  const fresh = Boolean(n && n.wake_date === S.today);
+  const note = document.getElementById("ln-stale");
+  if (fresh) { note.hidden = true; }
+  else {
+    const behind = n ? TODAY - dn(n.wake_date) : null;
+    note.innerHTML = '<i class="ico info" aria-hidden="true"></i><span><b>Last night&rsquo;s sleep has not arrived yet.</b> ' +
+      (n ? "The sleep, lowest sleeping heart rate and workouts below are from the night into " + fmtDayNav(dn(n.wake_date)) + (behind > 1 ? ", " + behind + " days ago" : "") + ". " : "") +
+      "Sleep reaches Google only after Samsung Health and Google Health sync on the phone; opening both apps usually triggers it, then press Pull now.</span>";
+    note.hidden = false;
+  }
+  setFold("fold-ln", fresh);
 }
 
 /* ---------- pipeline panels ---------- */
