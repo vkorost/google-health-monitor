@@ -308,13 +308,13 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
     </div>
   </details>
 
-  <section aria-labelledby="tr-h">
-    <div class="sec-head">
-      <h2 id="tr-h">Trends</h2>
-      <div class="seg" role="group" aria-label="Time range" id="range">
+  <details class="fold" id="fold-trends" open>
+    <summary><h2 id="tr-h">Trends</h2><span class="fold-note" id="tr-note"></span></summary>
+    <div class="fold-row">
+      <div class="seg" role="group" aria-label="Time range" id="range" style="margin-left:auto">
         <button type="button" id="r-1w" data-r="1w" aria-pressed="false">1W</button>
-        <button type="button" id="r-1m" data-r="1m" aria-pressed="false">1M</button>
-        <button type="button" id="r-3m" data-r="3m" aria-pressed="true">3M</button>
+        <button type="button" id="r-1m" data-r="1m" aria-pressed="true">1M</button>
+        <button type="button" id="r-3m" data-r="3m" aria-pressed="false">3M</button>
         <button type="button" id="r-1y" data-r="1y" aria-pressed="false">1Y</button>
         <button type="button" id="r-all" data-r="all" aria-pressed="false">All</button>
       </div>
@@ -375,7 +375,7 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
       </div>
       <div id="samsung-cards" style="display:contents"></div>
     </div>
-  </section>
+  </details>
 
   <section aria-label="Pipeline" style="display:flex;flex-direction:column;gap:12px">
     <details class="panel" id="p-health">
@@ -579,7 +579,13 @@ function xLabels(c, ticks){
 function svgPoint(c, evt){ const r = c.svg.getBoundingClientRect(); return {x: (evt.clientX - r.left) * c.W / r.width, px: evt.clientX - r.left, py: evt.clientY - r.top}; }
 
 /* ---------- periods from the API: {a,b} local dates -> day numbers ---------- */
-let RANGE = "3m";
+// Per-browser conveniences: last trend range and which sections are open. Storage can be
+// missing or throw (private windows, blocked site data), so every access is guarded.
+const PREF_KEY = "hm.prefs.v1";
+function loadPrefs(){ try { return JSON.parse(localStorage.getItem(PREF_KEY) || "{}") || {}; } catch { return {}; } }
+function savePrefs(patch){ try { localStorage.setItem(PREF_KEY, JSON.stringify(Object.assign(loadPrefs(), patch))); } catch {} }
+const RANGES_OK = ["1w", "1m", "3m", "1y", "all"];
+let RANGE = RANGES_OK.includes(loadPrefs().range) ? loadPrefs().range : "1m";
 const toItems = list => list.map(p => Object.assign({}, p, {a: dn(p.a), b: dn(p.b)}));
 function bucketTick(bk, grain, i, n){
   if (grain === "day") return n <= 7 ? WD[dt(bk.b).getUTCDay()] + " " + dt(bk.b).getUTCDate() : fmtShort(bk.b);
@@ -958,11 +964,19 @@ function sleepLabelHtml(sc){
     '<span class="g">' + rows.map(r => "<span>" + r[0] + "</span><span>" + r[1] + "</span><span>" + r[2] + "</span>").join("") + "</span>" +
     '<span class="s">Estimate: points per factor from a model fitted to Samsung\'s own scores. Import a Samsung export to see Samsung\'s score instead. ' + bandText + "</span></span></span>";
 }
-const foldTouched = new Set();
-// Open or fold a section to match its data, unless the viewer has toggled it this visit.
-function setFold(id, open){ const d = document.getElementById(id); if (!d || foldTouched.has(id)) return; d.open = open; }
-["fold-ln", "fold-day"].forEach(id => { const d = document.getElementById(id);
-  d.querySelector("summary").addEventListener("click", () => foldTouched.add(id)); });
+// Sections remember the viewer's last open/closed choice. Without a saved choice, the two
+// day sections open or fold to match whether they hold fresh data.
+const FOLD_IDS = ["fold-ln", "fold-day", "fold-trends", "p-health", "p-log", "p-alerts", "p-sources"];
+function savedOpen(id){ const o = loadPrefs().open; return o && typeof o[id] === "boolean" ? o[id] : null; }
+function setFold(id, open){ const d = document.getElementById(id); if (!d || savedOpen(id) !== null) return; d.open = open; }
+FOLD_IDS.forEach(id => {
+  const d = document.getElementById(id); if (!d) return;
+  const saved = savedOpen(id); if (saved !== null) d.open = saved;
+  d.querySelector("summary").addEventListener("click", () => {
+    // the click fires before the element toggles, so record the state it is about to take
+    const next = !d.open; const open = Object.assign({}, loadPrefs().open, { [id]: next }); savePrefs({ open });
+  });
+});
 let SUMMARY = null;
 function renderTop(){
   const S = SUMMARY, st = S.status || {}, al = S.alerts || {}, meta = S.meta || {}, set = S.settings;
@@ -1113,7 +1127,10 @@ async function loadAll(){
   await Promise.all([renderDay(), loadTrends(), ["p-health", "p-log", "p-sources"].some(id => document.getElementById(id).open) ? loadHealth() : null]);
 }
 
-document.getElementById("range").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; RANGE = b.dataset.r;
+const RANGE_NAME = { "1w": "Last 7 days", "1m": "Last 30 days", "3m": "Last 3 months", "1y": "Last year", "all": "All history" };
+function showRange(){ document.querySelectorAll("#range button").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.r === RANGE))); document.getElementById("tr-note").textContent = RANGE_NAME[RANGE]; }
+showRange();
+document.getElementById("range").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; RANGE = b.dataset.r; savePrefs({ range: RANGE }); showRange();
   document.querySelectorAll("#range button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); loadTrends(); });
 document.getElementById("status").addEventListener("click", e => { const chip = e.target.closest(".chip"); document.querySelectorAll("#status .chip.open").forEach(x => { if (x !== chip) x.classList.remove("open"); }); if (chip) chip.classList.toggle("open"); });
 document.addEventListener("click", e => { const sl = e.target.closest(".slabel"); document.querySelectorAll(".slabel.open").forEach(x => { if (x !== sl) x.classList.remove("open"); }); if (sl) sl.classList.toggle("open"); });
@@ -1147,6 +1164,8 @@ document.getElementById("p-alerts").addEventListener("change", e => {
   }, 300);
 });
 let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { renderTrends(); drawDay(); if (["p-health", "p-log", "p-sources"].some(id => document.getElementById(id).open) && HEALTH) safe("data health", renderHealth); }, 150); });
+document.getElementById("fold-trends").addEventListener("toggle", e => { if (e.target.open) safe("trends", renderTrends); });
+document.getElementById("fold-day").addEventListener("toggle", e => { if (e.target.open) drawDay(); });
 loadAll();
 })();
 </script>
