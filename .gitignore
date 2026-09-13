@@ -1,0 +1,24 @@
+# Real deployment config: database id, hostname, Access tag. Start from wrangler.jsonc.example.
+wrangler.jsonc
+
+# Credentials. tools/gh_probe.py keeps the Google client and refresh token here.
+.secrets/
+secrets.json
+*.secret
+.env
+.dev.vars
+
+# Your health record. Never commit these.
+data/
+probe-output/
+import/
+*.sqlite
+*.db
+*.csv
+icon-preview.png
+
+node_modules/
+.wrangler/
+__pycache__/
+*.pyc
+.DS_Store
