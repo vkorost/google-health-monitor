@@ -257,9 +257,8 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
       <h1 id="today-title">Loading</h1>
     </div>
     <div class="row-actions">
-      <button type="button" class="btn primary" id="pull">Pull now</button>
+      <button type="button" class="btn primary" id="pull">Refresh</button>
       <span class="result" id="pull-result"></span>
-      <span class="who" id="who"></span>
     </div>
   </header>
 
@@ -472,11 +471,12 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
       <div class="panel-body">
         <div class="chart" id="c-eras"></div>
         <p class="note" id="samsung-import-note" style="margin-top:8px"></p>
+        <p class="note" id="who"></p>
       </div>
     </details>
   </section>
 
-  <footer id="footer">Health Monitor reads Google Health twice a day. Times are shown in <span id="tzname"></span>.</footer>
+  <footer id="footer">Health Monitor reads Google Health twice a day, and again on your first visit of the day. Times are shown in <span id="tzname"></span>.</footer>
 </div>
 
 <script>
@@ -983,7 +983,7 @@ let SUMMARY = null;
 function renderTop(){
   const S = SUMMARY, st = S.status || {}, al = S.alerts || {}, meta = S.meta || {}, set = S.settings;
   document.getElementById("today-title").textContent = fmtLong(TODAY);
-  document.getElementById("who").textContent = S.email ? "Signed in as " + S.email : "";
+  document.getElementById("who").textContent = S.email ? "Signed in as " + S.email + ". Only this account can open the dashboard." : "";
   document.getElementById("tzname").textContent = TZ;
   const ago = ts => Math.floor((S.now - ts) / 86400);
   const when = ts => { const p = lp(ts); if (p.date === S.today) return clock(p.minutes); const n = TODAY - dn(p.date); return n === 1 ? "Yesterday" : n + "d ago"; };
