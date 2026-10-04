@@ -1129,6 +1129,20 @@ async function loadAll(){
   await Promise.all([renderDay(), loadTrends(), ["p-health", "p-log", "p-sources"].some(id => document.getElementById(id).open) ? loadHealth() : null]);
 }
 
+/*
+ * First visit of the day pulls on its own: the cron runs twice a day, and sleep usually
+ * reaches Google later than that. Guarded by a stored date so a reload does not pull again,
+ * and skipped when a pull has already run today.
+ */
+async function autoPullOnce(){
+  if (!SUMMARY) return;
+  const meta = SUMMARY.meta || {};
+  const ranToday = meta.last_run && lp(Math.floor(Date.parse(meta.last_run) / 1000)).date === SUMMARY.today;
+  if (ranToday || loadPrefs().autoPullDate === SUMMARY.today) return;
+  savePrefs({ autoPullDate: SUMMARY.today });
+  await doPull("First visit today: pulling from Google Health...");
+}
+
 const RANGE_NAME = { "1w": "Last 7 days", "1m": "Last 30 days", "3m": "Last 3 months", "1y": "Last year", "all": "All history" };
 function showRange(){ document.querySelectorAll("#range button").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.r === RANGE))); document.getElementById("tr-note").textContent = RANGE_NAME[RANGE]; }
 showRange();
@@ -1141,14 +1155,17 @@ document.getElementById("day-prev").addEventListener("click", () => { DAYSEL = s
 document.getElementById("day-next").addEventListener("click", () => { if (DAYSEL < TODAY_STR) { DAYSEL = shiftDate(DAYSEL, 1); renderDay(); } });
 ["p-health", "p-log", "p-sources"].forEach(id => document.getElementById(id).addEventListener("toggle", e => { if (e.target.open) { if (HEALTH) safe("data health", renderHealth); else loadHealth(); } }));
 document.getElementById("csv").addEventListener("click", () => { window.location.href = "/api/export.csv?range=" + RANGE; });
-document.getElementById("pull").addEventListener("click", async e => {
-  const btn = e.currentTarget, out = document.getElementById("pull-result"); btn.disabled = true; out.textContent = "Pulling from Google Health...";
+async function doPull(note){
+  const btn = document.getElementById("pull"), out = document.getElementById("pull-result");
+  if (btn.disabled) return;
+  btn.disabled = true; out.textContent = note || "Pulling from Google Health...";
   try { const r = await api("/api/pull-now", {method: "POST"});
     out.textContent = r.ok ? "Done: " + r.counts.hr_buckets + " heart-rate buckets, " + r.counts.nights + " sleep sessions, " + r.counts.workouts + " workouts, " + r.counts.body + " body readings, " + (r.counts.steps_days || 0) + " step days (" + r.window_days + "-day window)." : "Pull failed: " + r.error;
     dayCache.clear(); await loadAll(); await loadHealth();
   } catch (err) { out.textContent = "Pull failed: " + err.message; }
   btn.disabled = false;
-});
+}
+document.getElementById("pull").addEventListener("click", () => doPull());
 document.getElementById("test").addEventListener("click", async () => {
   const out = document.getElementById("test-result"); out.textContent = "Sending...";
   try { const r = await api("/api/test-notification", {method: "POST"}); out.textContent = "Sent via " + r.via + ". Check the phone."; }
@@ -1168,7 +1185,7 @@ document.getElementById("p-alerts").addEventListener("change", e => {
 let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { renderTrends(); drawDay(); if (["p-health", "p-log", "p-sources"].some(id => document.getElementById(id).open) && HEALTH) safe("data health", renderHealth); }, 150); });
 document.getElementById("fold-trends").addEventListener("toggle", e => { if (e.target.open) safe("trends", renderTrends); });
 document.getElementById("fold-day").addEventListener("toggle", e => { if (e.target.open) drawDay(); });
-loadAll();
+loadAll().then(autoPullOnce);
 })();
 </script>
 </body>
