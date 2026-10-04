@@ -84,6 +84,8 @@ header.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:spac
 .brand{font-family:var(--mono);font-size:12.5px;color:var(--ink-2)}
 header.top h1{font-size:clamp(26px,4vw,34px);font-weight:600;letter-spacing:-.01em;line-height:1.15}
 .who{font-size:13px;color:var(--ink-2)}
+.btn.primary{border-color:var(--accent);color:var(--accent);font-weight:600}
+header.top .result{font-size:12.5px;max-width:min(42ch,60vw)}
 
 /* status strip */
 .status{display:flex;flex-wrap:wrap;gap:8px}
@@ -255,6 +257,8 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
       <h1 id="today-title">Loading</h1>
     </div>
     <div class="row-actions">
+      <button type="button" class="btn primary" id="pull">Pull now</button>
+      <span class="result" id="pull-result"></span>
       <span class="who" id="who"></span>
     </div>
   </header>
@@ -382,9 +386,7 @@ footer{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);padd
       <summary><h2>Data health</h2><span class="sub" id="health-sub"></span></summary>
       <div class="panel-body">
         <div class="row-actions">
-          <button type="button" class="btn" id="pull">Pull now</button>
           <button type="button" class="btn" id="csv">Export CSV for this range</button>
-          <span class="result" id="pull-result"></span>
         </div>
         <div>
           <h3>Heart rate coverage, last 26 weeks</h3>
