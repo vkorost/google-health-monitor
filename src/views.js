@@ -26,8 +26,8 @@ function presentNight(n, samsung, settings, tz) {
   const out = { ...n, stages, offset_s: n.offset_s ?? null };
   delete out.stages_json;
   out.score = nightScore(stages, inBed, samsung?.sleep_score, settings.sleep_bands);
-  out.bad = badNight(stages, inBed);
   const s = localPartsAt(n.start_ts, n.offset_s, tz), e = localPartsAt(n.end_ts, n.offset_s, tz);
+  out.bad = badNight(stages, inBed, s.minutes);
   out.local = { start_date: s.date, start_min: s.minutes, end_date: e.date, end_min: e.minutes,
     away: n.offset_s != null && n.offset_s !== tzOffset(n.end_ts, tz) };
   out.samsung = samsung || null;
@@ -155,8 +155,8 @@ export async function trendsView(env, rangeParam) {
     for (const it of sleep) {
       const n = mains.get(it.key);
       if (!n) continue;
-      const b = badNight(parseStages(n.stages_json), (n.end_ts - n.start_ts) / 60);
-      if (b) { it.bad = b.bad; it.longest_awake_min = b.longest_awake_min; }
+      const b = badNight(parseStages(n.stages_json), (n.end_ts - n.start_ts) / 60, localPartsAt(n.start_ts, n.offset_s, tz).minutes);
+      if (b) { it.bad = b.bad; it.longest_awake_min = b.longest_awake_min; it.wake_kind = b.kind; it.wake_at_min = b.at_min; }
     }
     onsets = [...mains.values()].map((n) => onsetMinute(n, tz));
   } else {

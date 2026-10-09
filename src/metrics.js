@@ -152,10 +152,7 @@ export function rollingMedian(readings, days = 7) {
 
 // Weight entries from these apps are profile values typed into the app, not scale readings.
 export const PROFILE_WEIGHT_SOURCES = new Set(["fi.polar.polarflow", "com.sec.android.app.shealth"]);
-// Local dates whose body readings are known to be wrong (for example a scale app that stamped old
-// readings with the sync date). Stored in state "excluded_body_dates"; empty by default.
-// Example value: ["YYYY-MM-DD", "YYYY-MM-DD"]
-export const DEFAULT_EXCLUDED_BODY_DATES = [];
+export const DEFAULT_EXCLUDED_BODY_DATES = []; // e.g. ["2026-01-31"] for readings you know are misdated
 
 /**
  * Scale readings fit to chart. Rules, in order:
@@ -407,12 +404,12 @@ export function sleepFacts(stages, inBedMin) {
   const firstSleep = stages.findIndex((x) => x[2] !== "a");
   let lastSleep = stages.length - 1;
   while (lastSleep > 0 && stages[lastSleep][2] === "a") lastSleep--;
-  let waso = 0, wakeups = 0, longestAwake = 0;
+  let waso = 0, wakeups = 0, longestAwake = 0, longestAwakeAt = null;
   for (let i = firstSleep; i <= lastSleep; i++) {
     if (stages[i][2] === "a") {
       waso += stages[i][1];
       if (stages[i][1] >= 3) wakeups++;
-      longestAwake = Math.max(longestAwake, stages[i][1]);
+      if (stages[i][1] > longestAwake) { longestAwake = stages[i][1]; longestAwakeAt = stages[i][0]; }
     }
   }
   let cycles = 0, lastRemEnd = -Infinity;
@@ -424,7 +421,7 @@ export function sleepFacts(stages, inBedMin) {
   return {
     asleep_min: asleep, hours: asleep / 60, efficiency: asleep / inBedMin,
     deep_frac: t.d / asleep, rem_frac: t.r / asleep, waso_min: waso, wakeups, cycles,
-    longest_awake_min: longestAwake, onset_offset_min: stages[firstSleep] ? stages[firstSleep][0] : 0,
+    longest_awake_min: longestAwake, longest_awake_offset_min: longestAwakeAt, onset_offset_min: stages[firstSleep] ? stages[firstSleep][0] : 0,
   };
 }
 
@@ -434,8 +431,7 @@ export function sleepFacts(stages, inBedMin) {
  * facts above for main nights present in both sources, holding out one night in
  * five for validation. Each factor contributes points through a piecewise curve
  * (values at fixed knots); the score is the intercept plus the sum, clamped to
- * 0..100. The constants shipped here were fitted on one person's nights; re-run
- * the script on your own export to refit them for you.
+ * 0..100. Re-run the script after a new export to refit.
  */
 export const SLEEP_MODEL = /* fitted: begin */ {"intercept": 38.01, "curves": {"hours": [[5.75, 0.0], [7.5, 12.83], [8.25, 10.69], [9.25, 1.49]], "efficiency": [[0.68, 0.0], [0.84, 8.68], [0.9, 11.83], [0.94, 12.26]], "deep_frac": [[0.02, 0.0], [0.08, 9.42], [0.11, 12.18], [0.18, 12.18]], "rem_frac": [[0.17, 0.0], [0.23, 4.99], [0.27, 4.99], [0.46, 9.57]], "waso_min": [[25, 4.16], [50, 4.16], [85, 4.16], [175, 0.0]], "wakeups": [[1, 2.95], [2, 2.07], [4, 0.0], [10, 0.0]], "cycles": [[3, 0.0], [5, 2.04], [6, 3.72], [7, 5.65]]}, "cap": [[4, 40], [6, 76], [7, 97]]} /* fitted: end */;
 
@@ -486,9 +482,26 @@ export function nightScore(stages, inBedMin, samsungScore, bands = DEFAULT_SLEEP
 
 /** A night with an awakening of 15 minutes or more between first and last sleep. */
 export const BAD_NIGHT_AWAKE_MIN = 15;
-export function badNight(stages, inBedMin) {
+// A wake-up at 4 AM or later, before noon, is a lie-in: the owner is awake but in no hurry.
+// Anything earlier in the night is the disruptive kind. The split has no gap: every long
+// wake-up is one kind or the other.
+export const LIE_IN_FROM_MIN = 4 * 60;
+export const LIE_IN_UNTIL_MIN = 12 * 60;
+
+/**
+ * Longest interior awakening, and which kind it is.
+ * startClockMin: local minutes after midnight of the session start; without it `kind` is null.
+ */
+export function badNight(stages, inBedMin, startClockMin = null) {
   const f = sleepFacts(stages, inBedMin);
-  return f ? { bad: f.longest_awake_min >= BAD_NIGHT_AWAKE_MIN, longest_awake_min: Math.round(f.longest_awake_min) } : null;
+  if (!f) return null;
+  const bad = f.longest_awake_min >= BAD_NIGHT_AWAKE_MIN;
+  let kind = null, atMin = null;
+  if (bad && Number.isFinite(startClockMin) && f.longest_awake_offset_min != null) {
+    atMin = Math.round((startClockMin + f.longest_awake_offset_min) % 1440);
+    kind = atMin >= LIE_IN_FROM_MIN && atMin < LIE_IN_UNTIL_MIN ? "lie_in" : "disruptive";
+  }
+  return { bad, longest_awake_min: Math.round(f.longest_awake_min), kind, at_min: atMin };
 }
 
 /**
@@ -532,10 +545,7 @@ export function percentile(values, p) {
 }
 
 /** Known algorithm or firmware changes, drawn as markers on trends. Stored in state "trend_breaks"; this is the default. */
-// Empty by default: breaks are specific to a device and firmware history. Example entry:
-// { date: "YYYY-MM-DD", metric: "hrv", note: "Vendor changed its HRV algorithm" }
-// Metrics used by the dashboard: "hrv", "spo2", "sleep_awake", "rhr", "weight".
-export const DEFAULT_TREND_BREAKS = [];
+export const DEFAULT_TREND_BREAKS = []; // e.g. [{ date: "YYYY-MM-DD", metric: "hrv", note: "vendor scale change" }]
 
 /** Daily values (Map date -> number) averaged per period over the days that HAVE a value; empty periods stay null. */
 export function presentMeanSeries(dailyMap, from, to, grain) {

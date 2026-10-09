@@ -123,3 +123,19 @@ test("settings accept zone overrides and sleep bands, and reject nonsense", () =
   assert.equal(normaliseSettings({ zone_max_hr: 400 }).zone_max_hr, null);
   assert.ok(Array.isArray(DEFAULT_TREND_BREAKS) && DEFAULT_TREND_BREAKS.every((b) => /^\d{4}-\d{2}-\d{2}$/.test(b.date) && b.metric && b.note));
 });
+
+test("a long wake-up is classified by the clock time it started", () => {
+  // stages: [offsetMin, lenMin, code]; the session starts at the clock time passed in
+  const night = (awakeAt, len) => [[0, awakeAt, "l"], [awakeAt, len, "a"], [awakeAt + len, 120, "l"]];
+  const at = (startClock, awakeAt, len = 40) => badNight(night(awakeAt, len), 400, startClock);
+
+  assert.equal(at(23 * 60, 150).kind, "disruptive");   // 1:30 AM
+  assert.equal(at(23 * 60, 330).kind, "lie_in");       // 4:30 AM
+  assert.equal(at(23 * 60, 5 * 60).at_min, 4 * 60);    // boundary
+  assert.equal(at(23 * 60, 5 * 60).kind, "lie_in");
+  assert.equal(at(23 * 60, 5 * 60 - 1).kind, "disruptive");
+  assert.equal(at(23 * 60, 40).kind, "disruptive");    // soon after a late bedtime
+  const short = badNight(night(150, 10), 400, 23 * 60);
+  assert.equal(short.bad, false);
+  assert.equal(short.kind, null);
+});

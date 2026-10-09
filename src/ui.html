@@ -24,7 +24,7 @@
   --accent:#1a5fb4; --accent-soft:rgba(26,95,180,.10);
   /* status: good and info are calm; warn (orange) and crit (red) are alerts */
   --good:#197b3c; --info:#1a5fb4; --warn:#b45309; --crit:#b3261e;
-  --good-ink:#197b3c; --info-ink:#1a5fb4; --warn-ink:#b45309; --crit-ink:#b3261e; --sl-fair:#5b6472; --sl-att:#8a6d00;
+  --good-ink:#197b3c; --info-ink:#1a5fb4; --warn-ink:#b45309; --crit-ink:#b3261e; --sl-fair:#5b6472; --sl-att:#8a6d00; --wake-dis:#c04578; --wake-lie:#008f97;
   --st-deep:#55488d; --st-rem:#4f8ac6; --st-light:#cca755; --st-awake:#008f97; --st-stroke:transparent;
   --heart:#728295; --heart-band:rgba(114,130,149,.18);
   --weight:#1a5fb4; --fat:#0f7f73;
@@ -43,7 +43,7 @@
     --rule:#2c3039; --grid:#262a31; --axis:#3a3f48;
     --accent:#7cb0f0; --accent-soft:rgba(124,176,240,.14);
     --good:#5dd18a; --info:#7cb0f0; --warn:#e0a33c; --crit:#f2776a;
-    --good-ink:#5dd18a; --info-ink:#7cb0f0; --warn-ink:#e0a33c; --crit-ink:#f2776a; --sl-fair:#b9bfc7; --sl-att:#d6ad3a;
+    --good-ink:#5dd18a; --info-ink:#7cb0f0; --warn-ink:#e0a33c; --crit-ink:#f2776a; --sl-fair:#b9bfc7; --sl-att:#d6ad3a; --wake-dis:#e07aa6; --wake-lie:#1f9aa1;
     --st-deep:#6556a3; --st-rem:#5c95ce; --st-light:#b18e40; --st-awake:#1f9aa1; --st-stroke:transparent;
     --heart:#8a9aae; --heart-band:rgba(138,154,174,.20);
     --weight:#7cb0f0; --fat:#2bb3a3;
@@ -60,7 +60,7 @@
   --rule:#2c3039; --grid:#262a31; --axis:#3a3f48;
   --accent:#7cb0f0; --accent-soft:rgba(124,176,240,.14);
   --good:#5dd18a; --info:#7cb0f0; --warn:#e0a33c; --crit:#f2776a;
-  --good-ink:#5dd18a; --info-ink:#7cb0f0; --warn-ink:#e0a33c; --crit-ink:#f2776a; --sl-fair:#b9bfc7; --sl-att:#d6ad3a;
+  --good-ink:#5dd18a; --info-ink:#7cb0f0; --warn-ink:#e0a33c; --crit-ink:#f2776a; --sl-fair:#b9bfc7; --sl-att:#d6ad3a; --wake-dis:#e07aa6; --wake-lie:#1f9aa1;
   --st-deep:#6556a3; --st-rem:#5c95ce; --st-light:#b18e40; --st-awake:#1f9aa1; --st-stroke:transparent;
   --heart:#8a9aae; --heart-band:rgba(138,154,174,.20);
   --weight:#7cb0f0; --fat:#2bb3a3;
@@ -168,7 +168,7 @@ details.fold:not([open]) > summary{margin-bottom:0;padding-bottom:4px;border-bot
 .card-head .readout{font-size:13px;color:var(--ink-2)}
 .legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;color:var(--ink-2)}
 .legend .line{display:inline-block;width:16px;height:2px;vertical-align:middle;margin-right:5px;border-radius:1px}
-.legend .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle}
+.legend .dot,.hint .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle}
 .chart{position:relative;width:100%}
 .chart svg{display:block;width:100%;overflow:visible}
 .chart text{font-family:var(--mono);font-size:10.5px;fill:var(--muted)}
@@ -529,9 +529,20 @@ async function api(path, opts){
 function banner(msg){ const b = document.getElementById("banner"); if (!msg) { b.hidden = true; return; } b.textContent = msg; b.hidden = false; }
 function safe(name, fn){ try { fn(); } catch (err) { console.error(name, err); banner("Could not draw " + name + ": " + err.message); } }
 function empty(host, text){ host.innerHTML = '<div class="empty">' + esc(text) + '</div>'; }
+const WAKE_KIND = {
+  disruptive: {color: "--wake-dis", word: "Woke in the night",
+    why: "A wake-up before 4 AM, in the middle of the night."},
+  lie_in: {color: "--wake-lie", word: "Lie-in wake-up",
+    why: "A wake-up from 4 AM on, close to getting up: often lying in bed rather than a broken night."},
+};
+function wakeKind(b){ return (b && WAKE_KIND[b.kind]) || null; }
 function badFlagHtml(b){
   if (!b || !b.bad) return "";
-  return ' <span class="flag" tabindex="0" title="An awakening of ' + b.longest_awake_min + ' minutes between falling asleep and the final wake-up. Nights with a wake-up of 15 minutes or more are flagged.">Long wake-up ' + b.longest_awake_min + 'm</span>';
+  const k = wakeKind(b);
+  const at = b.at_min != null ? " at " + clock(b.at_min) : "";
+  return ' <span class="flag" tabindex="0"' + (k ? ' style="color:var(' + k.color + ')"' : "") +
+    ' title="An awakening of ' + b.longest_awake_min + ' minutes' + at + ', between falling asleep and the final wake-up. ' + (k ? k.why + " " : "") +
+    'Wake-ups of 15 minutes or more are flagged.">' + (k ? k.word : "Long wake-up") + " " + b.longest_awake_min + "m" + at + "</span>";
 }
 // Dashed vertical markers for known algorithm or firmware changes on a trend. xOf(dayNumber) -> svg x or null.
 function breakMarks(c, metric, xOf){
@@ -629,8 +640,10 @@ function stackedBars(host, items, keys, opts){
       }
     });
   });
-  if (opts.mark) items.forEach((it, i) => { if (!it.v || !opts.mark(it)) return; const top = keys.reduce((s,k) => s + (it.v[k.k] || 0), 0);
-    el("circle", {cx: c.pad.l + band * (i + 0.5), cy: Math.max(c.pad.t + 3, c.y(top) - 5), r: Math.max(2, Math.min(3.5, bw / 2.5)), style: "fill:none;stroke:var(--sl-att);stroke-width:1.5"}, g); });
+  // opts.mark returns a colour token for a circle above the bar, or null for no mark
+  if (opts.mark) items.forEach((it, i) => { if (!it.v) return; const token = opts.mark(it); if (!token) return;
+    const top = keys.reduce((s,k) => s + (it.v[k.k] || 0), 0);
+    el("circle", {cx: c.pad.l + band * (i + 0.5), cy: Math.max(c.pad.t + 3, c.y(top) - 5), r: Math.max(2, Math.min(3.5, bw / 2.5)), style: "fill:none;stroke:var(" + token + ");stroke-width:1.5"}, g); });
   if (opts.after) opts.after(c, band);
   const ticks = tickEvery(items, opts.want || 6, opts.grain).map(i => ({v: i + 0.5, label: bucketTick(items[i], opts.grain, i, items.length)}));
   xLabels(c, ticks);
@@ -695,16 +708,18 @@ function renderSleep(){
   const avg = withData.reduce((a, i) => a + i.v.asleep, 0) / withData.length;
   document.getElementById("sleep-readout").innerHTML = 'Average asleep <span class="num">' + hm(avg * 60) + '</span>';
   const reg = s.regularity, regEl = document.getElementById("sleep-regularity");
-  const badN = grain === "day" ? items.filter(i => i.bad).length : 0;
+  const disN = grain === "day" ? items.filter(i => i.bad && i.wake_kind !== "lie_in").length : 0;
+  const lieN = grain === "day" ? items.filter(i => i.bad && i.wake_kind === "lie_in").length : 0;
   regEl.innerHTML = (reg && reg.sd_min != null ? '<span class="hint" tabindex="0" title="Standard deviation of your ' + (reg.basis === "onset" ? "sleep-onset" : "bedtime") + ' clock time over ' + reg.nights + ' nights, measured around midnight so 23:50 and 00:10 are 20 minutes apart. Lower is more regular. ' + (reg.basis === "bedtime" ? "Longer ranges use the start of the sleep session." : "") + '">' + (reg.basis === "onset" ? "Sleep onset" : "Bedtime") + ' varies by <span class="num">&plusmn;' + hm(reg.sd_min) + '</span></span>' : "") +
-    (grain === "day" ? ' &middot; <span class="hint" tabindex="0" title="Circled bars: a wake-up of 15 minutes or more between falling asleep and the final wake-up.">' + badN + ' nights with a long wake-up</span>' : "");
+    (grain === "day" ? ' &middot; <span class="hint" tabindex="0" title="Circles above a bar mark the longest wake-up of the night of 15 minutes or more. Pink: it started before 4 AM, in the middle of the night. Turquoise: it started at 4 AM or later, close to getting up.">' +
+      '<i class="dot" style="background:var(--wake-dis)"></i>' + disN + ' in the night &middot; <i class="dot" style="background:var(--wake-lie)"></i>' + lieN + ' near waking</span>' : "");
   const idxOf = d => { const i = items.findIndex(it => d >= it.a && d <= it.b); return i < 0 ? null : i; };
   stackedBars(host, items,
     [{k:"deep", c:"--st-deep"}, {k:"rem", c:"--st-rem"}, {k:"light", c:"--st-light"}, {k:"awake", c:"--st-awake"}],
-    {grain, label: "Sleep per night by stage", fmtY: v => v + " h", mark: it => grain === "day" && it.bad,
+    {grain, label: "Sleep per night by stage", fmtY: v => v + " h", mark: it => (grain === "day" && it.bad ? (WAKE_KIND[it.wake_kind] || WAKE_KIND.disruptive).color : null),
      after: (c, band) => breakMarks(c, "sleep_awake", d => { const i = idxOf(d); return i == null ? null : c.pad.l + band * (i + 0.5); }), yTicks: max => { const top = Math.max(10, Math.ceil(max / 2) * 2); const t = []; for (let v = 0; v <= top; v += 2) t.push(v); return t; },
      tip: it => { if (!it.v) return "<b>" + bucketName(it, grain) + "</b><br>No sleep recorded"; const t = it.v;
-       return "<b>" + bucketName(it, grain) + "</b>" + (grain !== "day" ? ' <span class="m">(avg of ' + it.n + ' nights)</span>' : "") + (it.bad ? '<br><span style="color:var(--sl-att)">Long wake-up: ' + it.longest_awake_min + 'm</span>' : "") + '<br>Asleep <span class="m">' + hm(t.asleep*60) + "</span><br>" +
+       return "<b>" + bucketName(it, grain) + "</b>" + (grain !== "day" ? ' <span class="m">(avg of ' + it.n + ' nights)</span>' : "") + (it.bad ? '<br><span style="color:var(' + (WAKE_KIND[it.wake_kind] || WAKE_KIND.disruptive).color + ')">' + (WAKE_KIND[it.wake_kind] || WAKE_KIND.disruptive).word + ": " + it.longest_awake_min + "m" + (it.wake_at_min != null ? " at " + clock(it.wake_at_min) : "") + "</span>" : "") + '<br>Asleep <span class="m">' + hm(t.asleep*60) + "</span><br>" +
        '<i class="sw st" style="background:var(--st-deep)"></i>Deep <span class="m">' + hm(t.deep*60) + '</span><br><i class="sw st" style="background:var(--st-rem)"></i>REM <span class="m">' + hm(t.rem*60) + "</span><br>" +
        '<i class="sw st" style="background:var(--st-light)"></i>Light <span class="m">' + hm(t.light*60) + '</span><br><i class="sw st" style="background:var(--st-awake)"></i>Awake <span class="m">' + hm(t.awake*60) + "</span>"; }});
 }
