@@ -11,7 +11,7 @@ import { buildNotifier } from "./notify.js";
 import { pullOnce } from "./pull.js";
 import { PAGE } from "./ui.js";
 import { ICON_192, ICON_512, ICON_MASKABLE_512 } from "./icons.js";
-import { dayView, exportCsv, healthView, summaryView, trendsView } from "./views.js";
+import { dayView, exportCsv, healthView, sourcesView, summaryView, trendsView } from "./views.js";
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -93,6 +93,7 @@ export default {
       if (url.pathname === "/api/day") return json(await dayView(env, url.searchParams.get("date")));
       if (url.pathname === "/api/trends") return json(await trendsView(env, url.searchParams.get("range")));
       if (url.pathname === "/api/health") return json(await healthView(env));
+      if (url.pathname === "/api/sources") return json(await sourcesView(env));
       if (url.pathname === "/api/export.csv") return exportCsv(env, url.searchParams.get("range"));
 
       if (url.pathname === "/api/settings") {

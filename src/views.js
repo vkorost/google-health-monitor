@@ -1,12 +1,14 @@
 // JSON views for the dashboard. Downsampling happens here, server side, so the
 // page never receives more than a few thousand points for any range.
 
+import { coverageDays } from "./coverage.js";
 import * as db from "./db.js";
 import { DAY_S, addDays, exerciseCategory, localDate, localDateAt, localMidnight, localPartsAt, tzOffset } from "./ingest.js";
 import {
-  DEFAULT_EXCLUDED_BODY_DATES, DEFAULT_TREND_BREAKS, averageSeries, badNight, circularSdMinutes, cleanBody,
-  dropDuplicateWorkouts, exerciseSeries, mainNights, mergeWorkouts, nightScore, onsetMinute, percentile,
-  presentMeanSeries, rangeSpec, rollingMedian, sleepSeries, sourceEras, trailingMean, zone2,
+  COVERAGE_KEEP_DAYS, DEFAULT_EXCLUDED_BODY_DATES, DEFAULT_TREND_BREAKS, averageSeries, badNight, circularSdMinutes,
+  cleanBody, coverageCounts, dropDuplicateWorkouts, exerciseSeries, mainNights, mergeCoverage, mergeWorkouts,
+  nightScore, onsetMinute, percentile, presentMeanSeries, rangeSpec, rollingMedian, sleepSeries, sourceEras,
+  trailingMean, zone2,
 } from "./metrics.js";
 import { buildNotifier } from "./notify.js";
 
@@ -42,7 +44,7 @@ async function workoutsOn(database, date, tz) {
   return mergeWorkouts(dropDuplicateWorkouts(same.map((w) => ({ ...w, category: exerciseCategory(w.type) }))));
 }
 
-async function zoneFor(database, settings, now) {
+async function computeZone(database, settings, now) {
   const maxRows = settings.zone_max_hr ? [] : await db.all(database,
     "SELECT max_hr FROM workouts WHERE start_ts >= ? AND max_hr IS NOT NULL", now - 365 * DAY_S);
   const restRows = settings.zone_rest_hr ? [] : await db.all(database, "SELECT bpm FROM rhr_daily ORDER BY date DESC LIMIT 30");
@@ -50,6 +52,20 @@ async function zoneFor(database, settings, now) {
   const restHr = settings.zone_rest_hr || percentile(restRows.map((r) => r.bpm), 0.5);
   const z = zone2({ maxHr, restHr });
   return z ? { ...z, max_source: settings.zone_max_hr ? "setting" : "workouts", rest_source: settings.zone_rest_hr ? "setting" : "sleep" } : null;
+}
+
+/**
+ * The Zone 2 band, which both the summary and the day view show. Deriving it
+ * scans a year of workouts, so the result is cached in state; a pull and a
+ * settings change both clear it, and the next view recomputes it once.
+ */
+async function zoneFor(database, settings, now) {
+  if (settings.zone_max_hr && settings.zone_rest_hr) return computeZone(database, settings, now);
+  const cached = await db.getState(database, "zone2", undefined);
+  if (cached !== undefined) return cached;
+  const z = await computeZone(database, settings, now);
+  await db.putState(database, "zone2", z);
+  return z;
 }
 
 export async function summaryView(env, email) {
@@ -243,28 +259,32 @@ export async function healthView(env) {
   const database = env.DB, tz = tzOf(env), now = nowS();
   const today = localDate(now, tz);
   const from = addDays(today, -26 * 7 + 1);
-  // A fixed offset is close enough for a coverage calendar; at a DST change a
-  // single bucket can land on the neighbouring day.
-  const offset = tzOffset(now, tz);
-  const cov = await db.all(database,
-    "SELECT (start_ts + CAST(? AS INTEGER)) / 86400 AS d, COUNT(*) AS n FROM hr_buckets WHERE start_ts >= ? GROUP BY d",
-    offset, localMidnight(from, tz));
-  const coverage = {};
-  for (const r of cov) coverage[new Date(r.d * 86400_000).toISOString().slice(0, 10)] = r.n;
-
-  const sources = {
-    sleep: await db.all(database, "SELECT source, MIN(start_ts) AS a, MAX(end_ts) AS b, COUNT(*) AS n FROM nights GROUP BY source"),
-    workouts: await db.all(database, "SELECT source, MIN(start_ts) AS a, MAX(end_ts) AS b, COUNT(*) AS n FROM workouts GROUP BY source"),
-    weight: await db.all(database, "SELECT source, MIN(ts) AS a, MAX(ts) AS b, COUNT(*) AS n FROM body WHERE kind = 'weight_g' GROUP BY source"),
-    fat: await db.all(database, "SELECT source, MIN(ts) AS a, MAX(ts) AS b, COUNT(*) AS n FROM body WHERE kind = 'fat_pct' GROUP BY source"),
-    steps: await db.all(database, "SELECT source, MIN(date) AS a_date, MAX(date) AS b_date, COUNT(*) AS n FROM steps_daily GROUP BY source"),
-  };
-  const firstBucket = (await db.first(database, "SELECT MIN(start_ts) AS t FROM hr_buckets"))?.t ?? null;
 
   return {
-    tz, today, from, coverage, first_bucket: firstBucket, sources,
+    tz, today, from,
+    coverage: await coverageDays(database, tz, from),
+    first_bucket: (await db.first(database, "SELECT MIN(start_ts) AS t FROM hr_buckets"))?.t ?? null,
     log: await db.all(database, "SELECT ts, trigger, status, detail FROM sync_log ORDER BY id DESC LIMIT 25"),
     meta: await db.getState(database, "meta", {}),
+  };
+}
+
+/**
+ * Which device supplied each metric and when. Its own view because every row
+ * of it is a GROUP BY over a whole table (about 7,000 rows read): the panel is
+ * collapsed by default, so the page should not pay for it until it is opened.
+ */
+export async function sourcesView(env) {
+  const database = env.DB, tz = tzOf(env);
+  return {
+    tz, today: localDate(nowS(), tz),
+    sources: {
+      sleep: await db.all(database, "SELECT source, MIN(start_ts) AS a, MAX(end_ts) AS b, COUNT(*) AS n FROM nights GROUP BY source"),
+      workouts: await db.all(database, "SELECT source, MIN(start_ts) AS a, MAX(end_ts) AS b, COUNT(*) AS n FROM workouts GROUP BY source"),
+      weight: await db.all(database, "SELECT source, MIN(ts) AS a, MAX(ts) AS b, COUNT(*) AS n FROM body WHERE kind = 'weight_g' GROUP BY source"),
+      fat: await db.all(database, "SELECT source, MIN(ts) AS a, MAX(ts) AS b, COUNT(*) AS n FROM body WHERE kind = 'fat_pct' GROUP BY source"),
+      steps: await db.all(database, "SELECT source, MIN(date) AS a_date, MAX(date) AS b_date, COUNT(*) AS n FROM steps_daily GROUP BY source"),
+    },
     samsung_import: await db.getState(database, "samsung_import", null),
   };
 }

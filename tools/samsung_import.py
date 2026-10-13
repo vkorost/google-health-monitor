@@ -1,8 +1,8 @@
 """Samsung Health export -> SQL import files for the Health Monitor D1 database. Standard library only.
 
-    python tools/samsung_import.py [--export data/samsung_export] [--out import/samsung] [--hr-days 365]
+    python tools/samsung_import.py [--export data/samsung_export] [--out worker/import/samsung] [--hr-days 365]
 
-Then, from the repo root (in file order, a day apart if the row budget below says so):
+Then, from worker/ (in file order, a day apart if the row budget below says so):
     npx wrangler d1 execute healthmon --remote --file=import/samsung/01-....sql
 
 What it writes (every statement is safe to re-run):
@@ -112,7 +112,7 @@ def bucket_rows(export_dir, since_s):
 
 
 def resting_hr(buckets, start_s, end_s):
-    """Same rule as src/metrics.js restingHr: lowest mean of two consecutive 15-minute averages inside the night."""
+    """Same rule as worker metrics.restingHr: lowest mean of two consecutive 15-minute averages inside the night."""
     keys = sorted(k for k in buckets if k >= start_s and k + 900 <= end_s + 450)
     best = None
     for a, b in zip(keys, keys[1:]):
@@ -126,7 +126,7 @@ def resting_hr(buckets, start_s, end_s):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--export", default=str(ROOT / "data" / "samsung_export"))
-    ap.add_argument("--out", default=str(ROOT / "import" / "samsung"))
+    ap.add_argument("--out", default=str(ROOT / "worker" / "import" / "samsung"))
     ap.add_argument("--hr-days", type=int, default=365)
     args = ap.parse_args()
     E, OUT = args.export, Path(args.out)
@@ -259,6 +259,10 @@ def main():
     state = {"export": stamp, "imported_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), "counts": counts}
     stmts.append(("state", "INSERT INTO state (key, value) VALUES ('samsung_import', " + q(json.dumps(state)) +
                   ") ON CONFLICT(key) DO UPDATE SET value = excluded.value;", 1))
+    # The dashboard keeps the heart-rate coverage counts and the Zone 2 band in state
+    # instead of deriving them per request. An import adds buckets and workouts the
+    # Worker never saw, so drop both; the next page load rebuilds them.
+    stmts.append(("state", "DELETE FROM state WHERE key IN ('hr_coverage', 'zone2');", 1))
 
     # ---- files: D1 counts index maintenance too, so budget two writes per row except hr_buckets/steps
     per_row = {"nights": 2, "workouts": 2, "hr_buckets": 1, "rhr_daily": 2, "steps_daily": 1, "samsung_nightly": 1, "state": 1}

@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  DEFAULT_SETTINGS, averageSeries, dedupeBody, evaluateConditions, exerciseSeries, inQuietHours,
-  mainNights, normaliseSettings, periods, processAlerts, rangeSpec, restingHr, restingHrRows,
-  rollingMedian, sleepSeries, trailingMean,
+  DEFAULT_SETTINGS, averageSeries, coverageCounts, dedupeBody, evaluateConditions, exerciseSeries,
+  inQuietHours, mainNights, mergeCoverage, normaliseSettings, periods, processAlerts, rangeSpec,
+  restingHr, restingHrRows, rollingMedian, sleepSeries, trailingMean,
 } from "../src/metrics.js";
+import { DAY_S as DAY, localDate } from "../src/ingest.js";
 
 const TZ = "America/New_York";
 const T0 = Date.parse("2026-09-12T04:00:00Z") / 1000; // midnight EDT
@@ -186,4 +187,31 @@ test("quiet hours wrap midnight and settings are clamped", () => {
   assert.equal(s.stale_days, 14);
   assert.equal(s.failing_runs, 1);
   assert.equal(s.quiet_start, DEFAULT_SETTINGS.quiet_start);
+});
+
+/* ---------- heart-rate coverage counts (cached in state, not counted per request) ---------- */
+
+test("coverage counts buckets per local date", () => {
+  const ts = [T0, T0 + 900, T0 + 1800, T0 + DAY, T0 + 2 * DAY];
+  const days = coverageCounts(ts, (t) => localDate(t, TZ));
+  assert.deepEqual(days, { "2026-09-12": 3, "2026-09-13": 1, "2026-09-14": 1 });
+});
+
+test("a recount replaces its own window, keeps older days and drops aged-out ones", () => {
+  const stored = { from: "2026-01-01", days: { "2026-01-01": 96, "2026-09-10": 96, "2026-09-12": 40 } };
+  const fresh = { "2026-09-12": 96, "2026-09-13": 7 };
+  const merged = mergeCoverage(stored, fresh, "2026-09-12", "2026-09-01");
+  assert.deepEqual(merged.days, { "2026-09-10": 96, "2026-09-12": 96, "2026-09-13": 7 }, "window replaced, old day dropped");
+  assert.equal(merged.from, "2026-09-01", "the map is only trustworthy back to the retention cutoff");
+});
+
+test("a day whose buckets disappeared leaves the map", () => {
+  const stored = { from: "2026-09-01", days: { "2026-09-12": 96, "2026-09-13": 96 } };
+  const merged = mergeCoverage(stored, { "2026-09-12": 96 }, "2026-09-12", "2026-09-01");
+  assert.deepEqual(merged.days, { "2026-09-12": 96 });
+});
+
+test("with nothing stored the merge starts at the recounted window", () => {
+  const merged = mergeCoverage(null, { "2026-09-12": 96 }, "2026-09-12", "2026-01-01");
+  assert.deepEqual(merged, { from: "2026-09-12", days: { "2026-09-12": 96 } });
 });

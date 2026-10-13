@@ -1072,7 +1072,7 @@ function renderTop(){
 }
 
 /* ---------- pipeline panels ---------- */
-let HEALTH = null;
+let HEALTH = null, SOURCES = null;
 function renderHealth(){
   const h = HEALTH; if (!h) return;
   const cal = document.getElementById("cal"); const start = dn(h.from); const padDays = dt(start).getUTCDay(); let html = "";
@@ -1089,6 +1089,16 @@ function renderHealth(){
   }
   cal.innerHTML = html;
 
+  const pill = s => s === "ok" ? ["good", "OK"] : s === "auth" ? ["crit", "Access lost"] : s === "error" ? ["warn", "Failed"] : ["info", "Alert"];
+  document.getElementById("log").innerHTML = h.log.length ? h.log.map(r => { const l = lp(Math.floor(Date.parse(r.ts) / 1000)); const p = pill(r.trigger === "alert" ? "alert" : r.status);
+    return '<tr><td class="num">' + fmtDayNav(dn(l.date)) + ", " + clock(l.minutes) + '</td><td><span class="pill"><i class="ico ' + p[0] + '"></i>' + p[1] + "</span></td><td>" + (r.trigger === "alert" ? esc(r.status) + ": " : r.trigger === "manual" ? "Manual pull. " : "") + esc(r.detail) + "</td></tr>"; }).join("")
+    : '<tr><td colspan="3">No pulls yet.</td></tr>';
+  const m = h.meta || {};
+  document.getElementById("health-sub").textContent = m.last_run ? "Last pull " + clock(lp(Math.floor(Date.parse(m.last_run) / 1000)).minutes) + ", " + (m.last_status === "ok" ? "OK" : "failed") : "No pulls yet";
+}
+
+function renderSources(){
+  const h = SOURCES; if (!h) return;
   const stepSrc = (h.sources.steps || []).map(s => ({source: s.source, n: s.n, a: Math.floor(Date.parse(s.a_date + "T12:00:00Z") / 1000), b: Math.floor(Date.parse(s.b_date + "T12:00:00Z") / 1000)}));
   const rows = [["Sleep", h.sources.sleep], ["Workouts", h.sources.workouts], ["Weight", h.sources.weight], ["Body fat", h.sources.fat], ["Steps", stepSrc]].filter(r => r[1].length);
   const imp = h.samsung_import;
@@ -1115,14 +1125,9 @@ function renderHealth(){
     xLabels(c, dateTicks(lo, TODAY));
   }
 
-  const pill = s => s === "ok" ? ["good", "OK"] : s === "auth" ? ["crit", "Access lost"] : s === "error" ? ["warn", "Failed"] : ["info", "Alert"];
-  document.getElementById("log").innerHTML = h.log.length ? h.log.map(r => { const l = lp(Math.floor(Date.parse(r.ts) / 1000)); const p = pill(r.trigger === "alert" ? "alert" : r.status);
-    return '<tr><td class="num">' + fmtDayNav(dn(l.date)) + ", " + clock(l.minutes) + '</td><td><span class="pill"><i class="ico ' + p[0] + '"></i>' + p[1] + "</span></td><td>" + (r.trigger === "alert" ? esc(r.status) + ": " : r.trigger === "manual" ? "Manual pull. " : "") + esc(r.detail) + "</td></tr>"; }).join("")
-    : '<tr><td colspan="3">No pulls yet.</td></tr>';
-  const m = h.meta || {};
-  document.getElementById("health-sub").textContent = m.last_run ? "Last pull " + clock(lp(Math.floor(Date.parse(m.last_run) / 1000)).minutes) + ", " + (m.last_status === "ok" ? "OK" : "failed") : "No pulls yet";
 }
 async function loadHealth(){ try { HEALTH = await api("/api/health"); safe("data health", renderHealth); } catch (err) { banner("Could not load data health: " + err.message); } }
+async function loadSources(){ try { SOURCES = await api("/api/sources"); safe("data sources", renderSources); } catch (err) { banner("Could not load data sources: " + err.message); } }
 
 function applySettings(){
   const set = SUMMARY.settings;
@@ -1141,7 +1146,9 @@ async function loadAll(){
   banner(null);
   try { await loadSummary(); } catch (err) { banner("Could not load the dashboard: " + err.message); return; }
   if (!DAYSEL) DAYSEL = TODAY_STR;
-  await Promise.all([renderDay(), loadTrends(), ["p-health", "p-log", "p-sources"].some(id => document.getElementById(id).open) ? loadHealth() : null]);
+  await Promise.all([renderDay(), loadTrends(),
+    ["p-health", "p-log"].some(id => document.getElementById(id).open) ? loadHealth() : null,
+    document.getElementById("p-sources").open ? loadSources() : null]);
 }
 
 /*
@@ -1168,7 +1175,8 @@ document.addEventListener("click", e => { const sl = e.target.closest(".slabel")
 document.addEventListener("click", e => { if (!e.target.closest("#status")) document.querySelectorAll("#status .chip.open").forEach(x => x.classList.remove("open")); });
 document.getElementById("day-prev").addEventListener("click", () => { DAYSEL = shiftDate(DAYSEL, -1); renderDay(); });
 document.getElementById("day-next").addEventListener("click", () => { if (DAYSEL < TODAY_STR) { DAYSEL = shiftDate(DAYSEL, 1); renderDay(); } });
-["p-health", "p-log", "p-sources"].forEach(id => document.getElementById(id).addEventListener("toggle", e => { if (e.target.open) { if (HEALTH) safe("data health", renderHealth); else loadHealth(); } }));
+["p-health", "p-log"].forEach(id => document.getElementById(id).addEventListener("toggle", e => { if (e.target.open) { if (HEALTH) safe("data health", renderHealth); else loadHealth(); } }));
+document.getElementById("p-sources").addEventListener("toggle", e => { if (e.target.open) { if (SOURCES) safe("data sources", renderSources); else loadSources(); } });
 document.getElementById("csv").addEventListener("click", () => { window.location.href = "/api/export.csv?range=" + RANGE; });
 async function doPull(note){
   const btn = document.getElementById("pull"), out = document.getElementById("pull-result");
@@ -1176,7 +1184,7 @@ async function doPull(note){
   btn.disabled = true; out.textContent = note || "Pulling from Google Health...";
   try { const r = await api("/api/pull-now", {method: "POST"});
     out.textContent = r.ok ? "Done: " + r.counts.hr_buckets + " heart-rate buckets, " + r.counts.nights + " sleep sessions, " + r.counts.workouts + " workouts, " + r.counts.body + " body readings, " + (r.counts.steps_days || 0) + " step days (" + r.window_days + "-day window)." : "Pull failed: " + r.error;
-    dayCache.clear(); await loadAll(); await loadHealth();
+    dayCache.clear(); HEALTH = null; SOURCES = null; await loadAll();
   } catch (err) { out.textContent = "Pull failed: " + err.message; }
   btn.disabled = false;
 }
@@ -1197,7 +1205,7 @@ document.getElementById("p-alerts").addEventListener("change", e => {
     catch (err) { out.textContent = "Not saved: " + err.message; }
   }, 300);
 });
-let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { renderTrends(); drawDay(); if (["p-health", "p-log", "p-sources"].some(id => document.getElementById(id).open) && HEALTH) safe("data health", renderHealth); }, 150); });
+let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { renderTrends(); drawDay(); if (HEALTH) safe("data health", renderHealth); if (SOURCES) safe("data sources", renderSources); }, 150); });
 document.getElementById("fold-trends").addEventListener("toggle", e => { if (e.target.open) safe("trends", renderTrends); });
 document.getElementById("fold-day").addEventListener("toggle", e => { if (e.target.open) drawDay(); });
 loadAll().then(autoPullOnce);

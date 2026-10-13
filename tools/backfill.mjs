@@ -15,15 +15,14 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import * as google from "../src/google.js";
-import { addDays, bodyRow, bucketRows, isoOf, localDate, localMidnight, nightRow, stepsDailyRow, workoutRow } from "../src/ingest.js";
-import { restingHrRows } from "../src/metrics.js";
-import { upsertSql, workoutMaxHrSql } from "../src/db.js";
+import * as google from "../worker/src/google.js";
+import { addDays, bodyRow, bucketRows, isoOf, localDate, localMidnight, nightRow, stepsDailyRow, workoutRow } from "../worker/src/ingest.js";
+import { restingHrRows } from "../worker/src/metrics.js";
+import { upsertSql, workoutMaxHrSql } from "../worker/src/db.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const OUT = join(ROOT, "import");
-// Set HEALTH_TZ to the same IANA zone as the TZ var in wrangler.jsonc.
-const TZ = process.env.HEALTH_TZ || "America/New_York";
+const OUT = join(ROOT, "worker", "import");
+const TZ = "America/New_York";
 const DAY_S = 86400;
 
 // D1 counts index maintenance as extra written rows, so budget per table.
@@ -137,6 +136,8 @@ async function main() {
   add("rhr_daily", rhr);
   add("steps_daily", steps);
   buf.push(workoutMaxHrSql(0)); writes += workouts.length * 2; bytes += 300;
+  // Coverage counts and the Zone 2 band are cached in state; a backfill invalidates both.
+  buf.push("DELETE FROM state WHERE key IN ('hr_coverage', 'zone2');"); writes += 1;
   flush("workout-max-hr");
 
   const total = files.reduce((n, f) => n + f.writes, 0);

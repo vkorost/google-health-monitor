@@ -1,6 +1,7 @@
 // One pull: Google -> D1 -> resting HR -> alerts. Never throws; a failure
 // becomes a sync_log row and a counter the alert logic reads.
 
+import { refreshCoverage } from "./coverage.js";
 import * as db from "./db.js";
 import * as google from "./google.js";
 import { DAY_S, addDays, bodyRow, bucketRows, isoOf, localDate, localMidnight, nightRow, stepsDailyRow, toEpoch, workoutRow } from "./ingest.js";
@@ -93,6 +94,13 @@ export async function pullOnce(env, trigger = "cron") {
       rhr = restingHrRows(recent, stored);
       await db.runStatements(database, db.upsertSql("rhr_daily", rhr));
     }
+
+    // Keep the coverage calendar's counts current here, where the window is
+    // known, so the dashboard never has to count buckets itself. The Zone 2
+    // band is derived from a year of workouts, so it is dropped and rebuilt
+    // once by the next view rather than on every page load.
+    await refreshCoverage(database, tz, sinceS, nowS);
+    await db.clearState(database, "zone2");
 
     Object.assign(counts, {
       hr_buckets: buckets.length, nights: nights.length, workouts: workouts.length,

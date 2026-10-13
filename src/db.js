@@ -94,6 +94,11 @@ export async function putState(database, key, value) {
     .run();
 }
 
+/** Drop a cached state row so the next reader rebuilds it. */
+export async function clearState(database, key) {
+  await database.prepare("DELETE FROM state WHERE key = ?").bind(key).run();
+}
+
 export async function getSettings(database) {
   return normaliseSettings(await getState(database, "settings", {}));
 }
@@ -102,6 +107,7 @@ export async function setSettings(database, patch) {
   const cur = await getState(database, "settings", {});
   const next = normaliseSettings({ ...cur, ...(patch || {}) });
   await putState(database, "settings", next);
+  await clearState(database, "zone2"); // zone_max_hr / zone_rest_hr may have moved
   return next;
 }
 
@@ -128,15 +134,17 @@ export async function first(database, sql, ...binds) {
   return database.prepare(sql).bind(...binds).first();
 }
 
-/** Newest evidence that the watch pipeline is alive, epoch seconds or null. */
+/**
+ * Newest evidence that the watch pipeline is alive, epoch seconds or null.
+ * Two plain MAX queries, not one UNION: inside a compound SELECT, SQLite stops
+ * answering MAX from the index and scans instead, which cost 1,484 rows read
+ * per call against a 5-million-a-day account limit. These read one row each.
+ */
 export async function lastDataTs(database) {
-  const r = await first(
-    database,
-    `SELECT MAX(x) AS t FROM (
-       SELECT MAX(start_ts) + 900 AS x FROM hr_buckets
-       UNION ALL SELECT MAX(end_ts) AS x FROM nights)`
-  );
-  return r?.t ?? null;
+  const hr = await first(database, "SELECT MAX(start_ts) AS t FROM hr_buckets");
+  const night = await first(database, "SELECT MAX(end_ts) AS t FROM nights");
+  const xs = [hr?.t == null ? null : hr.t + 900, night?.t ?? null].filter((v) => v !== null);
+  return xs.length ? Math.max(...xs) : null;
 }
 
 export async function prune(database) {

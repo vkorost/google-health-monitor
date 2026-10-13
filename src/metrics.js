@@ -559,6 +559,45 @@ export function presentMeanSeries(dailyMap, from, to, grain) {
   });
 }
 
+// ------------------------------------------------------------ heart-rate coverage
+//
+// The coverage calendar used to count buckets with a GROUP BY over hr_buckets,
+// which read the whole table (30k rows) on every Data health load and was by
+// far the most expensive query in the app. D1's free plan allows 5 million rows
+// read a day across the account, so the counts are kept as a small map in
+// state and only the days a pull touched are recounted.
+
+/** How much of the count map to keep. The calendar shows 26 weeks; the surplus is slack for a late backfill. */
+export const COVERAGE_KEEP_DAYS = 420;
+
+/** Buckets per local date. `toDate` maps epoch seconds to a local date, so DST is handled where it happens. */
+export function coverageCounts(timestamps, toDate) {
+  const days = {};
+  for (const ts of timestamps) {
+    const d = toDate(ts);
+    days[d] = (days[d] || 0) + 1;
+  }
+  return days;
+}
+
+/**
+ * Merge a recount of every day from `freshFrom` on into the stored map.
+ * Days inside the recounted window are replaced, not added to, so buckets that
+ * disappeared are reflected; days before it are kept until they age out.
+ * Returns { from, days }, where `from` is the earliest date the map can be trusted for.
+ */
+export function mergeCoverage(stored, fresh, freshFrom, keepFrom) {
+  const prior = stored && stored.days ? stored.days : null;
+  const from = prior && stored.from && stored.from < freshFrom ? stored.from : freshFrom;
+  const days = {};
+  for (const [d, n] of Object.entries(prior || {})) {
+    if (d >= freshFrom || d < keepFrom) continue; // recounted below, or too old to keep
+    days[d] = n;
+  }
+  for (const [d, n] of Object.entries(fresh)) if (d >= keepFrom) days[d] = n;
+  return { from: from < keepFrom ? keepFrom : from, days };
+}
+
 // ------------------------------------------------------------ alerts
 
 export const ALERT_TYPES = ["stale", "failing", "auth"];

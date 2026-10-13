@@ -64,6 +64,8 @@ Two things to know:
 
 The free Worker plan allows 10 ms of CPU per request. Heart rate is pulled pre-summarized through the API's `rollUp` endpoint, and long ranges are downsampled on the server, so every path fits.
 
+D1's free plan also allows 5 million rows **read** a day, counted across your whole Cloudflare account, and a query's cost is the rows it examines, not the rows it returns. A full day of dashboard use here reads a few thousand. The one aggregate that would have scanned the whole heart-rate table on every load, the coverage calendar, keeps its counts in a state row that each pull updates, and the data-sources panel has its own endpoint so a collapsed panel costs nothing.
+
 ---
 
 ## What you get
@@ -104,6 +106,7 @@ src/             the Cloudflare Worker
   google.js        Google Health API client (heart rate only via rollUp)
   ingest.js        API records -> rows, stage compaction, local dates. Pure
   metrics.js       resting HR, sleep score, workout merging, trends, alert state machine. Pure
+  coverage.js      heart-rate coverage counts, kept in state instead of counted per request
   views.js         JSON for the dashboard, downsampled server side
   access.js        Cloudflare Access JWT verification, fails closed
   db.js, notify.js D1 helpers, Pushover
