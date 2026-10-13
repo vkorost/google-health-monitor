@@ -162,8 +162,10 @@ Then, in a browser:
 - **"Watch data stopped" is the alert that matters.** It usually means a phone app has not synced: open Samsung Health (especially after an update) and the Google Health app.
 - **"Google access lost"** means the refresh token died. The usual cause is an OAuth app still in Testing after 7 days. Publish it (docs/01, Step 7), re-run `tools/gh_probe.py auth`, and update `GOOGLE_REFRESH_TOKEN`.
 - **Logs:** `npx wrangler tail`.
+- **Watch the D1 read budget.** The free plan allows 5 million rows read a day across **every** D1 database on your account, reset at 00:00 UTC, and a query costs the rows it examines rather than the rows it returns. Normal use here is a few thousand rows a page load. If a page ever reports `D1_ERROR: ... exceeded ... daily row read limit`, find the culprit with `npx wrangler d1 insights <database> --sort-by reads --timePeriod 1d`; it may well be another Worker on the same account. Two things keep this app small: the heart-rate coverage counts live in the `state` key `hr_coverage`, updated by each pull rather than counted per request, and the Data sources panel loads from its own `/api/sources` endpoint only when you open it. If you load heart-rate buckets outside the Worker, delete the `hr_coverage` row (the import tools do this for you) and the next page load rebuilds it.
 - **Settings stored as data, not code** (the `state` table):
   - `excluded_body_dates`: a JSON array of local dates whose scale readings are known to be wrong.
   - `trend_breaks`: a JSON array of `{date, metric, note}` markers for vendor algorithm changes (metrics `hrv`, `spo2`, `sleep_awake`, `rhr`, `weight`).
   - `sleep_bands`, `zone_max_hr`, `zone_rest_hr`: label cutoffs and Zone 2 overrides, editable on the dashboard.
+  - `hr_coverage`, `zone2`: caches the app maintains itself. Deleting either is safe; the next pull or page load rebuilds it.
 - **Samsung export:** see [04-samsung-export.md](04-samsung-export.md).

@@ -30,6 +30,7 @@ Long-term trends from wearable and scale data, in storage the user controls, ref
 ## 2. Hard constraints
 
 - **Free tier.** Cloudflare Workers Free: 10 ms CPU per invocation (cron included), 50 subrequests per invocation, 100,000 requests a day. D1 Free: 100,000 rows written and 5 million rows read a day, 5 GB total. Free plans return errors instead of billing, so an overrun breaks a page silently.
+- **The D1 read budget is shared and is costed by rows examined.** The 5 million a day is counted across every D1 database on the account, not per database, and resets at 00:00 UTC. A query is charged for the rows it reads, not the rows it returns, so one unindexed aggregate over a large table costs its whole table on every request. Anything a page loads must be O(rows shown); anything O(table) belongs in a stored summary. Another app on the same account can exhaust this one's budget, and the error arrives as `D1_ERROR: ... exceeded ... daily row read limit` on an unrelated page.
 - **Read-only Google access.** Request only the `.readonly` scopes. Never write to Google Health.
 - **Fail closed.** If the Access configuration is missing, every data route answers 503. If the Access JWT is missing or invalid, answer 403. Never fall back to open.
 - **No build step, no CDN at runtime.** Inline the dashboard; the Worker serves one HTML string and JSON.
@@ -70,6 +71,7 @@ src/metrics.js  resting HR, sleep score, workout rules, trends, alert state mach
 src/google.js   token refresh, paged list, rollUp, subrequest counter
 src/pull.js     one pull end to end; never throws
 src/views.js    JSON views, server-side downsampling
+src/coverage.js heart-rate coverage counts, kept in state instead of counted per request
 src/access.js   Access JWT verification
 src/db.js       D1 helpers and upserts
 src/notify.js   Pushover
@@ -243,6 +245,10 @@ Single page, mobile first, everything inlined. Order:
 - **Default library user agents get HTTP 403 with `error code: 1010`** before reaching the Worker. Send a conventional `User-Agent` from scripts.
 - **`Intl.DateTimeFormat` timezone math is too slow for 10 ms** across thousands of days. Cache the offset per month; test the cache against Intl across both DST changes.
 - **The "All" trends range is the tightest CPU path.** Walk dates as integer day numbers, not date strings.
+- **Never aggregate a whole table in a request path.** A coverage calendar written as `SELECT ts/86400, COUNT(*) FROM hr_buckets GROUP BY 1` reads every row in the table each time the panel loads. Keep the counts in a `state` row that the pull updates for the days its window touched, rebuild the row when it is missing, and have the import tools delete it so backfilled days are counted. The same applies to any `GROUP BY source` summary: give it its own endpoint so a collapsed panel costs nothing.
+- **`MAX()` inside a compound SELECT stops using the index.** `SELECT MAX(x) FROM (SELECT MAX(a) AS x FROM t1 UNION ALL SELECT MAX(b) FROM t2)` scans; two separate `SELECT MAX(...)` queries read one row each. The same trick costs nothing in readability and a thousand rows a call in the budget.
+- **Measure, do not guess.** `wrangler d1 insights <db> --sort-by reads --timePeriod 1d` ranks the queries actually costing rows, and `wrangler d1 execute <db> --remote --command "<sql>" --json` reports `meta.rows_read` for one query. Both are the number the limit counts.
+- **A dashboard on a timer is the other way to exhaust the budget.** Poll no faster than the data changes, and pause polling when `document.hidden` is true: a background tab left open overnight otherwise spends a day's quota on a page nobody is looking at.
 - **Upload secrets with `wrangler secret bulk`** from a temporary JSON file, then delete it. Secrets take a few seconds to reach the Worker.
 
 ### Notifications
